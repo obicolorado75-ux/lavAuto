@@ -50,7 +50,11 @@ export function UpgradeRequestCard({ currentPlanCode }: { currentPlanCode?: stri
   const [error, setError] = React.useState<string | null>(null)
   const [copied, setCopied] = React.useState(false)
 
-  const activePlan = selected ?? payablePlans[0]?.code ?? null
+  // Par défaut, on propose le forfait que le client paie déjà : un impayé se
+  // règle en renouvelant, pas en re-choisissant dans une liste. Le choix reste
+  // libre — c'est un point de départ, pas une contrainte.
+  const ownPlan = payablePlans.some((item) => item.code === currentPlanCode) ? currentPlanCode : null
+  const activePlan = selected ?? ownPlan ?? payablePlans[0]?.code ?? null
   const plan = payablePlans.find((p) => p.code === activePlan) ?? null
   const total = plan ? plan.price_cents * months : 0
 

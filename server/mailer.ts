@@ -197,7 +197,7 @@ export function trialReminderMessage(
  * courriel **est** le mécanisme de renouvellement — pas un simple rappel.
  */
 export function renewalReminderMessage(
-  kind: "renewal_j7" | "renewal_j3" | "renewal_j1" | "renewal_overdue",
+  kind: "renewal_j7" | "renewal_j3" | "renewal_j1" | "renewal_overdue" | "renewal_read_only",
   context: {
     to: string
     firstName?: string | null
@@ -228,6 +228,12 @@ export function renewalReminderMessage(
       headline: `Votre abonnement se termine demain (${endDay}).`,
       body: `Renouvelez aujourd'hui pour éviter toute coupure sur ${context.organizationName}. Vos données restent évidemment conservées dans tous les cas.`,
       cta: "Renouveler aujourd'hui",
+    },
+    renewal_read_only: {
+      subject: `Forfait ${context.planName} : espace en lecture seule`,
+      headline: `Votre espace ${context.organizationName} est passé en lecture seule.`,
+      body: `Le forfait ${context.planName} n'a pas été renouvelé et le délai de tolérance est écoulé. Aucune donnée n'a été supprimée : tout reste consultable et exportable. Régularisez votre forfait pour reprendre les enregistrements, sans rien rattraper — la réactivation est immédiate.`,
+      cta: "Réactiver mon espace",
     },
     renewal_overdue: {
       subject: `Forfait ${context.planName} : échéance dépassée`,

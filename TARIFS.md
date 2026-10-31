@@ -81,8 +81,8 @@ qui distingue une restriction d'une prise d'otage, et c'est ce qui permet de
 reconquérir un gérant parti trois mois.
 
 Le principe « ne pas laisser toutes les fonctionnalités gratuites
-indéfiniment » est respecté par la bascule en lecture seule — à une réserve
-près, traitée ci-dessous.
+indéfiniment » est respecté par la bascule en lecture seule, y compris pour un
+forfait payant dont l'échéance est dépassée (voir 7.4).
 
 ---
 
@@ -317,3 +317,45 @@ désactiver/réactiver contournerait la limite.
 
 **Remonter de forfait ne demande aucune manipulation** : tout se rouvre à
 l'instant. Le client vient de payer, il doit retrouver son outil intact.
+
+### 7.4 Que devient un forfait payant dont l'échéance est dépassée
+
+Jusqu'ici, un abonnement `active` **ne fermait jamais** : passé
+`current_period_end`, il continuait indéfiniment, et seule une échéance
+affichée dans la console rappelait à un opérateur qu'il fallait encaisser. La
+bonne intention — ne pas couper un client dont le virement a deux jours de
+retard — produisait un défaut plus grave : un client qui ne renouvelle pas
+jamais obtenait le même service qu'un client qui paie.
+
+La règle est désormais la même pour tout le monde, avec un délai explicite :
+
+| Moment | Statut applicatif | Écriture |
+|---|---|---|
+| Jusqu'à l'échéance | `active` | ouverte |
+| J+1 → J+`PLAN_GRACE_DAYS` (7 par défaut) | `active`, `past_due: true` | ouverte, bandeau daté |
+| Au-delà | `expired`, `expired_reason: "payment"` | **fermée** (402 `subscription_payment_due`) |
+
+Trois décisions derrière ce tableau :
+
+1. **La tolérance est un délai de paiement, pas un cadeau.** Le rail mobile
+   money ne prélève pas tout seul : entre la relance J-7 et l'arrivée d'un
+   virement, il se passe plusieurs jours. `PLAN_GRACE_DAYS` vaut 7 et se
+   règle par variable d'environnement (1 à 30).
+2. **La coupure est annoncée avant d'être appliquée.** Dès J+1, l'écran
+   Forfait affiche l'échéance dépassée, la date exacte de fermeture et le
+   nombre de jours restants ; un courriel `renewal_read_only` part le jour de
+   la fermeture. Aucune coupure silencieuse.
+3. **Rien n'est supprimé, ni masqué.** Comme après un essai : lecture et
+   export restent ouverts, l'historique est borné aux 7 derniers jours, et la
+   réactivation par `activateSubscription()` rouvre tout immédiatement, sans
+   rattrapage à saisir.
+
+Le forfait `pending` (demande de paiement déposée, en attente de vérification)
+reste utilisable : refuser l'accès pendant la vérification punirait un client
+qui a déjà envoyé l'argent. Seul le silence prolongé après l'échéance ferme.
+
+Côté console, la coupure ne se décide plus à l'œil : `/admin/organizations`
+expose `payment_grace_days_remaining` et le revenu à risque affiche la date de
+fermeture. L'opérateur voit combien de jours il lui reste pour encaisser avant
+que l'accès ne se ferme de lui-même.
+

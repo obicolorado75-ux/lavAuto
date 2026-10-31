@@ -93,3 +93,22 @@ test("le nom de fichier reste valide sans nom de station", () => {
   const name = backupFileName(null, new Date("2026-01-05T08:00:00Z"))
   assert.equal(name, "washpilot-sauvegarde-washpilot-2026-01-05.json")
 })
+
+test("un impayé ne reçoit jamais une relance d'essai", () => {
+  // Le cas le plus coûteux : un client qui paie depuis huit mois et reçoit
+  // « votre essai gratuit est terminé ». Faux, et humiliant au moment précis
+  // où il décide de rester ou de partir.
+  assert.equal(
+    planReminder({ is_trial: false, is_expired: true, days_remaining: 0, expired_reason: "payment" }),
+    null,
+  )
+  assert.equal(
+    planReminder({ is_trial: false, is_expired: true, days_remaining: 0, expired_reason: "cancelled" }),
+    null,
+  )
+  // L'essai, lui, garde sa relance.
+  assert.equal(
+    planReminder({ is_trial: false, is_expired: true, days_remaining: 0, expired_reason: "trial" }),
+    "trial_expired",
+  )
+})

@@ -42,6 +42,17 @@ const schema = z.object({
    * qu'elle lit sur l'API — elle n'est donc jamais démentie par la réalité.
    */
   TRIAL_DAYS: z.coerce.number().int().min(1).max(90).default(14),
+  /**
+   * Jours de tolérance après l'échéance d'un forfait **payant** avant de passer
+   * l'espace en lecture seule.
+   *
+   * Le rail mobile money ne prélève pas tout seul : entre la relance J-7 et
+   * l'arrivée effective de l'argent, il faut une marge. Zéro n'est pas
+   * autorisé — couper un client le jour même de son échéance, sans préavis,
+   * est le meilleur moyen de le perdre ; 30 est le plafond, au-delà la
+   * tolérance devient un forfait gratuit de fait.
+   */
+  PLAN_GRACE_DAYS: z.coerce.number().int().min(1).max(30).default(7),
   /** Transport e-mail (Resend). Sans clé, les liens sont journalisés côté serveur. */
   RESEND_API_KEY: z.string().trim().optional().default(""),
   MAIL_FROM: z.string().trim().optional().default("WashPilot CI <onboarding@resend.dev>"),

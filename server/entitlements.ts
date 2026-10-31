@@ -18,7 +18,13 @@ import { env } from "./env.ts"
 //   • À l'échéance → l'organisation bascule en **lecture seule** : les données
 //     restent consultables, mais plus aucune écriture n'est acceptée et les
 //     rapports sont limités aux 7 derniers jours.
-//   • Un forfait payant validé (`active`) n'est jamais restreint.
+//   • Un forfait payant validé (`active`) reste ouvert **jusqu'à son
+//     échéance**. Passée celle-ci, il bénéficie de `PAYMENT_GRACE_DAYS` jours
+//     de tolérance (le délai réel d'un virement mobile money), puis ferme en
+//     lecture seule par la même règle que l'essai. Rien n'est jamais supprimé.
+//   • Un forfait `pending` (demande de paiement déposée) reste utilisable :
+//     le paiement est hors ligne, refuser l'accès pendant la vérification
+//     punirait un client qui a déjà envoyé l'argent.
 //
 // La vérité est côté serveur : l'interface se contente de refléter cet état.
 // ---------------------------------------------------------------------------
@@ -36,6 +42,24 @@ export const TRIAL_DURATION_MS = TRIAL_DAYS * 86_400_000
 export const EXPIRED_REPORT_WINDOW_DAYS = 7
 /** Seuil d'alerte : à partir d'ici, l'interface insiste sur l'échéance. */
 export const TRIAL_WARNING_DAYS = 3
+
+/**
+ * Tolérance après l'échéance d'un forfait **payant** avant la lecture seule.
+ *
+ * Jusqu'ici, un abonnement `active` restait actif indéfiniment, même des mois
+ * après son échéance : la seule parade était un filtre « impayé » dans la
+ * console, donc un humain qui regarde. C'est exactement le trou par lequel
+ * part un revenu d'abonnement.
+ *
+ * La tolérance n'est pas un cadeau, c'est le délai réel du rail de paiement :
+ * entre la relance J-7 et l'arrivée d'un virement mobile money, il se passe
+ * plusieurs jours. Couper le jour même punirait un client qui a payé la
+ * veille. Passé ce délai, l'espace passe en lecture seule — les données
+ * restent consultables et exportables, exactement comme après un essai : on
+ * ne prend jamais les données en otage.
+ */
+export const PAYMENT_GRACE_DAYS = env.PLAN_GRACE_DAYS
+export const PAYMENT_GRACE_MS = PAYMENT_GRACE_DAYS * 86_400_000
 
 export type SubscriptionStatus =
   | "none"
@@ -112,8 +136,28 @@ export interface SubscriptionState {
   days_remaining: number
   /** Part de l'essai déjà consommée, de 0 à 1 (pour la barre de progression). */
   progress: number
-  /** Vrai quand l'essai est terminé : plus aucune écriture n'est acceptée. */
+  /** Vrai quand l'espace est fermé en écriture (essai échu, impayé, résiliation). */
   read_only: boolean
+  /**
+   * Forfait payant dont l'échéance est dépassée — dans la tolérance ou après.
+   * L'interface le montre **avant** la coupure : c'est la relance la plus
+   * efficace, celle qui arrive quand il est encore temps de payer.
+   */
+  past_due: boolean
+  /** Durée de la tolérance appliquée (jours), pour que le client l'explique seul. */
+  payment_grace_days: number
+  /** Fin de la tolérance de paiement ; `null` hors impayé. */
+  payment_grace_ends_at: string | null
+  /** Jours restants avant la lecture seule ; 0 une fois le délai écoulé. */
+  payment_grace_days_remaining: number
+  /** Jours écoulés depuis l'échéance impayée ; 0 hors impayé. */
+  days_past_due: number
+  /**
+   * Pourquoi l'accès est fermé. Sert aux messages : parler d'« essai
+   * terminé » à un client qui payait depuis huit mois est faux, et faux sur
+   * le seul écran où il décide de rester ou de partir.
+   */
+  expired_reason: "trial" | "payment" | "cancelled" | null
   /** Fenêtre d'historique autorisée, en jours (null = illimitée). */
   report_window_days: number | null
   capabilities: Record<Capability, boolean>
@@ -162,8 +206,19 @@ export function computeSubscriptionState(input: SubscriptionInput): Subscription
   const isTrialRecord = storedStatus === "trialing"
   const trialEnded = isTrialRecord && periodEnd != null && periodEnd.getTime() <= now.getTime()
 
+  // Forfait payant dont l'échéance est dépassée. Tant que la tolérance court,
+  // l'espace reste utilisable (`past_due`) ; au-delà, il ferme en écriture.
+  // Un `active` sans date d'échéance (activation d'essai par un opérateur,
+  // ancien enregistrement) n'est pas un impayé : on ne ferme rien sur une
+  // donnée absente.
+  const paidLapsed =
+    storedStatus === "active" && periodEnd != null && periodEnd.getTime() <= now.getTime()
+  const graceEnd = paidLapsed && periodEnd ? new Date(periodEnd.getTime() + PAYMENT_GRACE_MS) : null
+  const withinGrace = graceEnd != null && now.getTime() < graceEnd.getTime()
+  const paymentLapsed = paidLapsed && !withinGrace
+
   let status: SubscriptionStatus
-  if (trialEnded || storedStatus === "expired") status = "expired"
+  if (trialEnded || storedStatus === "expired" || paymentLapsed) status = "expired"
   else if (isTrialRecord) status = "trialing"
   else if (storedStatus === "active") status = "active"
   else if (storedStatus === "pending") status = "pending"
@@ -172,12 +227,40 @@ export function computeSubscriptionState(input: SubscriptionInput): Subscription
 
   const isTrial = status === "trialing"
   const isExpired = status === "expired"
-  // Lecture seule : essai terminé, ou abonnement annulé. Un forfait payant
-  // « en attente de validation » reste utilisable (le paiement est hors ligne).
+  // Lecture seule : essai terminé, impayé au-delà de la tolérance, ou
+  // abonnement annulé. Un forfait payant « en attente de validation » reste
+  // utilisable (le paiement est hors ligne).
   const readOnly = isExpired || status === "cancelled"
+
+  const expiredReason: SubscriptionState["expired_reason"] = isExpired
+    ? paymentLapsed
+      ? "payment"
+      : "trial"
+    : status === "cancelled"
+      ? "cancelled"
+      : null
+
+  /** L'échéance affichée est-elle celle d'un essai (et non d'un impayé) ? */
+  const trialContext = isTrial || (isExpired && expiredReason === "trial")
 
   const msRemaining =
     isTrial && periodEnd ? Math.max(0, periodEnd.getTime() - now.getTime()) : 0
+  /**
+   * Jours avant l'échéance.
+   *
+   * Pour un essai : le décompte, jamais négatif. Pour un forfait **payant** :
+   * la distance à `current_period_end`, qui peut être négative — c'est elle
+   * que lit la console pour sa liste « à renouveler sous 7 jours ». Avant ce
+   * calcul, elle valait 0 pour tout forfait payant, donc toutes les stations
+   * actives y figuraient : une liste d'alertes qui alerte sur tout n'alerte
+   * sur rien.
+   */
+  // `|| 0` : `Math.ceil(-0.4)` vaut `-0`, que `assert.equal` distingue de `0`.
+  const daysRemaining = isTrial
+    ? Math.ceil(msRemaining / 86_400_000) || 0
+    : periodEnd
+      ? Math.ceil((periodEnd.getTime() - now.getTime()) / 86_400_000) || 0
+      : 0
   const trialStart = periodEnd ? new Date(periodEnd.getTime() - TRIAL_DURATION_MS) : null
   const elapsed = trialStart ? now.getTime() - trialStart.getTime() : 0
   const progress = isTrial
@@ -201,16 +284,26 @@ export function computeSubscriptionState(input: SubscriptionInput): Subscription
   return {
     status,
     stored_status: storedStatus,
+    past_due: paidLapsed,
+    payment_grace_days: PAYMENT_GRACE_DAYS,
+    payment_grace_ends_at: paidLapsed && graceEnd ? graceEnd.toISOString() : null,
+    payment_grace_days_remaining:
+      paidLapsed && graceEnd ? Math.max(0, Math.ceil((graceEnd.getTime() - now.getTime()) / 86_400_000)) : 0,
+    days_past_due:
+      paidLapsed && periodEnd ? Math.max(0, Math.floor((now.getTime() - periodEnd.getTime()) / 86_400_000)) : 0,
+    expired_reason: expiredReason,
     plan_code: input.plan_code ?? null,
     plan_name: input.plan_name ?? null,
     plan_price_cents: priceCents,
     is_trial: isTrial,
     is_expired: isExpired,
     trial_days: TRIAL_DAYS,
-    trial_started_at: isTrial || isExpired ? (trialStart?.toISOString() ?? null) : null,
-    trial_ends_at: isTrial || isExpired ? (periodEnd?.toISOString() ?? null) : null,
+    // Les dates d'essai ne concernent que l'essai : les afficher sur un impayé
+    // ferait croire à un essai terminé, et le message serait faux.
+    trial_started_at: trialContext ? (trialStart?.toISOString() ?? null) : null,
+    trial_ends_at: trialContext ? (periodEnd?.toISOString() ?? null) : null,
     ms_remaining: msRemaining,
-    days_remaining: Math.ceil(msRemaining / 86_400_000),
+    days_remaining: daysRemaining,
     progress,
     read_only: readOnly,
     report_window_days: readOnly ? EXPIRED_REPORT_WINDOW_DAYS : null,
@@ -340,15 +433,29 @@ export function blockWritesWhenReadOnly(req: Request, _res: Response, next: Next
   if (SAFE_METHODS.has(req.method)) return next()
   if (ALWAYS_ALLOWED.some((pattern) => pattern.test(req.path))) return next()
 
-  next(
-    new HttpError(
-      402,
-      "trial_expired",
-      state.status === "cancelled"
-        ? "Votre abonnement est résilié : l’espace est en lecture seule. Choisissez un forfait pour reprendre les enregistrements."
-        : `Votre essai gratuit de ${TRIAL_DAYS} jours est terminé. Votre espace reste consultable, mais les nouveaux enregistrements nécessitent un forfait.`,
-    ),
-  )
+  next(new HttpError(402, readOnlyCode(state), readOnlyMessage(state)))
+}
+
+/** Code d'erreur d'un accès fermé — distinct du refus de forfait. */
+function readOnlyCode(state: SubscriptionState): string {
+  return state.expired_reason === "payment" ? "subscription_payment_due" : "trial_expired"
+}
+
+/**
+ * Message d'un espace en lecture seule.
+ *
+ * Trois causes, trois phrases. Dire « votre essai est terminé » à un client
+ * qui paie depuis huit mois est faux — et c'est précisément l'écran où il
+ * décide de rester ou de partir.
+ */
+export function readOnlyMessage(state: SubscriptionState): string {
+  if (state.expired_reason === "cancelled") {
+    return "Votre abonnement est résilié : l’espace est en lecture seule. Choisissez un forfait pour reprendre les enregistrements."
+  }
+  if (state.expired_reason === "payment") {
+    return `L’échéance de votre forfait ${state.plan_name ?? "payant"} est dépassée depuis ${state.days_past_due} jour(s), au-delà de la tolérance de ${PAYMENT_GRACE_DAYS} jours. Vos données restent consultables et exportables ; les nouveaux enregistrements reprennent dès la validation du paiement.`
+  }
+  return `Votre essai gratuit de ${TRIAL_DAYS} jours est terminé. Votre espace reste consultable, mais les nouveaux enregistrements nécessitent un forfait.`
 }
 
 /** Garde explicite pour une capacité donnée (fonctionnalités de forfait). */
@@ -359,9 +466,11 @@ export function requireCapability(capability: Capability) {
     next(
       new HttpError(
         402,
-        state.read_only ? "trial_expired" : "plan_upgrade_required",
+        state.read_only ? readOnlyCode(state) : "plan_upgrade_required",
         state.read_only
-          ? `« ${CAPABILITY_LABELS[capability]} » n’est plus disponible : votre essai gratuit est terminé.`
+          ? state.expired_reason === "payment"
+            ? `« ${CAPABILITY_LABELS[capability]} » n’est plus disponible : l’échéance de votre forfait est dépassée.`
+            : `« ${CAPABILITY_LABELS[capability]} » n’est plus disponible : votre essai gratuit est terminé.`
           : `« ${CAPABILITY_LABELS[capability]} » n’est pas inclus dans votre forfait actuel.`,
       ),
     )

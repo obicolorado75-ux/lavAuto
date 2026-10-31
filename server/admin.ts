@@ -44,13 +44,16 @@ import { registerClosureConsoleRoutes, acceptPendingClosure } from "./closure.ts
 //
 // Deux partis pris explicites :
 //
-//   1. **Aucune coupure automatique.** Un abonnement `active` reste actif même
-//      après `current_period_end` (voir `computeSubscriptionState` : seul
-//      `trialing` regarde l'échéance). Couper automatiquement un client dont
-//      le virement n'a pas encore été saisi serait plus grave que de laisser
-//      courir quelques jours. En contrepartie, `GET /admin/metrics` et le
-//      filtre `past_due` rendent les échéances dépassées impossibles à
-//      manquer : la décision revient à un humain, mais elle lui est présentée.
+//   1. **Aucune coupure sans tolérance.** Un abonnement `active` dont
+//      l'échéance est dépassée garde toutes ses écritures pendant
+//      `PAYMENT_GRACE_DAYS` (7 par défaut), puis passe en lecture seule. Couper
+//      le jour de l'échéance punirait un client dont le virement mobile money a
+//      été envoyé la veille ; laisser courir indéfiniment, c'était le forfait
+//      gratuit de fait. La tolérance est le délai réel du rail de paiement, pas
+//      un cadeau. `GET /admin/metrics` et le filtre `past_due` présentent
+//      l'échéance dépassée à un humain avant la coupure : il peut activer, ou
+//      assumer la fermeture en connaissance de cause. Aucune donnée n'est
+//      jamais supprimée pour un impayé.
 //
 //   2. **Toute action est journalisée chez le client**, pas dans un registre
 //      séparé (voir `auditPlatformAction`). Le propriétaire voit dans son
@@ -143,11 +146,9 @@ function describe(row: OrganizationRow, now: Date) {
     now,
   })
 
-  const periodEnd = row.current_period_end ? new Date(row.current_period_end) : null
-  // « Échéance dépassée » ne concerne que les forfaits payants actifs : un
-  // essai échu est déjà « expired », ce n'est pas un impayé.
-  const pastDue =
-    state.status === "active" && periodEnd !== null && periodEnd.getTime() <= now.getTime()
+  // « Échéance dépassée » vient de l'état partagé, pas d'un second calcul :
+  // l'écran du client et celui de l'opérateur doivent fermer au même instant.
+  const { past_due: pastDue } = state
 
   // Une station dormante n'est ni en panne ni perdue : elle n'a simplement
   // rien enregistré depuis longtemps. C'est le signal le plus précoce d'un
@@ -182,10 +183,12 @@ function describe(row: OrganizationRow, now: Date) {
     plan_changed_at: row.plan_changed_at,
     days_remaining: state.days_remaining,
     past_due: pastDue,
-    days_past_due:
-      pastDue && periodEnd
-        ? Math.floor((now.getTime() - periodEnd.getTime()) / 86_400_000)
-        : 0,
+    days_past_due: state.days_past_due,
+    // Combien de jours il reste avant la fermeture réelle : c'est le chiffre
+    // qui décide si l'opérateur appelle le client ou attend son virement.
+    payment_grace_days_remaining: state.payment_grace_days_remaining,
+    payment_grace_ends_at: state.payment_grace_ends_at,
+    expired_reason: state.expired_reason,
   }
 }
 

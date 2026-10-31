@@ -38,6 +38,8 @@ export const RENEWAL_REMINDER_KINDS = [
   "renewal_j3",
   "renewal_j1",
   "renewal_overdue",
+  // Envoyée une fois, au moment où la tolérance s'achève et où l'espace ferme.
+  "renewal_read_only",
 ] as const
 export type RenewalReminderKind = (typeof RENEWAL_REMINDER_KINDS)[number]
 
@@ -66,10 +68,16 @@ export function planRenewalReminder(
  * Fonction pure : c'est elle qui est couverte par les tests.
  */
 export function planReminder(
-  state: Pick<SubscriptionState, "is_trial" | "is_expired" | "days_remaining">,
+  state: Pick<SubscriptionState, "is_trial" | "is_expired" | "days_remaining"> & {
+    /** Renseigné par l'appelant : un impayé n'est pas un essai. */
+    expired_reason?: SubscriptionState["expired_reason"]
+  },
   alreadySent: readonly string[] = [],
 ): ReminderKind | null {
   const sent = new Set(alreadySent)
+
+  // Un forfait payant échu ne reçoit jamais de relance d'essai.
+  if (state.expired_reason === "payment" || state.expired_reason === "cancelled") return null
 
   if (state.is_expired) {
     return sent.has("trial_expired") ? null : "trial_expired"
@@ -203,6 +211,37 @@ export async function runSubscriptionReminders(
         kind: renewalKind,
         email: row.owner_email,
         delivered: renewalDelivered,
+      })
+      continue
+    }
+
+    // Impayé au-delà de la tolérance : ce n'est pas un essai. Annoncer « votre
+    // essai gratuit est terminé » à un client qui paie depuis huit mois serait
+    // faux, et c'est le courriel qu'il relira avant de résilier.
+    if (state.expired_reason === "payment") {
+      if (sentKinds.includes("renewal_read_only")) continue
+      const reservedCutoff = await pool.query(
+        `INSERT INTO subscription_reminders(organization_id, kind)
+         VALUES($1::uuid,$2) ON CONFLICT (organization_id, kind) DO NOTHING RETURNING kind`,
+        [row.organization_id, "renewal_read_only"],
+      )
+      if (!reservedCutoff.rowCount) continue
+
+      const cutoffDelivered = await sendMail(
+        renewalReminderMessage("renewal_read_only", {
+          to: row.owner_email,
+          firstName: row.owner_first_name,
+          organizationName: row.organization_name,
+          planName: row.plan_name ?? "votre forfait",
+          periodEnd: row.current_period_end ? new Date(row.current_period_end).toISOString() : null,
+          billingUrl: billingUrl(),
+        }),
+      )
+      outcomes.push({
+        organization_id: row.organization_id,
+        kind: "renewal_read_only",
+        email: row.owner_email,
+        delivered: cutoffDelivered,
       })
       continue
     }

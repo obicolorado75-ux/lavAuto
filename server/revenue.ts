@@ -17,6 +17,7 @@
  */
 
 import type { Pool, PoolClient } from "pg"
+import { PAYMENT_GRACE_MS } from "./entitlements.ts"
 
 type Queryable = Pick<Pool | PoolClient, "query">
 
@@ -340,6 +341,8 @@ export interface AtRiskRow {
   price_cents: number
   current_period_end: string
   days_overdue: number
+  /** Jours restants avant le passage en lecture seule ; 0 une fois écoulés. */
+  days_until_read_only: number
 }
 
 export interface PendingRow {
@@ -359,8 +362,10 @@ export interface PendingRow {
  * Deux natures distinctes, délibérément séparées :
  *
  * - **à risque** : des stations `active` dont l'échéance est passée. Elles
- *   travaillent toujours — aucune coupure automatique, c'est la règle — mais
- *   n'ont rien payé depuis. C'est du revenu en train de fuir.
+ *   travaillent encore pendant la tolérance de paiement, puis passent en
+ *   lecture seule — d'où `days_until_read_only`, qui dit à l'opérateur
+ *   combien de temps il lui reste pour encaisser avant de fermer l'accès.
+ *   C'est du revenu en train de fuir, avec un compte à rebours.
  * - **en attente** : des intentions de paiement que le client a déclaré
  *   avoir réglées, sans confirmation de l'éditeur. L'argent est peut-être
  *   arrivé ; tant qu'il n'est pas vérifié il n'entre pas au registre.
@@ -400,6 +405,10 @@ export async function revenueAtRisk(
         ...r,
         price_cents: Number(r.price_cents),
         days_overdue: Math.max(0, Math.floor((now.getTime() - end.getTime()) / DAY_MS)),
+        days_until_read_only: Math.max(
+          0,
+          Math.ceil((end.getTime() + PAYMENT_GRACE_MS - now.getTime()) / DAY_MS),
+        ),
       } as AtRiskRow
     }),
     pending: pendingQ.rows.map((r) => ({ ...r, amount_cents: Number(r.amount_cents) }) as PendingRow),

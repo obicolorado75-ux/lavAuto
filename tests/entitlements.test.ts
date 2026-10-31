@@ -3,8 +3,10 @@ import assert from "node:assert/strict"
 import {
   TRIAL_DAYS,
   EXPIRED_REPORT_WINDOW_DAYS,
+  PAYMENT_GRACE_DAYS,
   computeSubscriptionState,
   clampReportRange,
+  readOnlyMessage,
 } from "../server/entitlements.ts"
 
 const DAY = 86_400_000
@@ -226,4 +228,161 @@ test("sans restriction, la période demandée est conservée", () => {
 
   assert.equal(result.clamped, false)
   assert.equal(result.from, "2026-01-01")
+})
+
+// --- Impayé sur un forfait payant -------------------------------------------
+// Avant cette série, un abonnement `active` restait actif indéfiniment, même
+// des mois après son échéance : seul l'œil d'un opérateur dans la console
+// empêchait la fuite. La tolérance ci-dessous est le délai réel du rail de
+// paiement mobile money, pas un cadeau.
+
+/** Forfait payant dont l'échéance est dépassée de `days` jours. */
+function paidLapsedBy(days: number) {
+  return {
+    status: "active",
+    current_period_end: new Date(NOW.getTime() - days * DAY),
+    plan_code: "pro",
+    plan_price_cents: 2_000_000,
+    plan_features: { "reports.advanced": true, "reports.export": true },
+    now: NOW,
+  }
+}
+
+test("un impayé dans la tolérance reste utilisable et annonce sa date de coupure", () => {
+  const state = computeSubscriptionState(paidLapsedBy(2))
+
+  assert.equal(state.past_due, true)
+  assert.equal(state.status, "active")
+  assert.equal(state.read_only, false)
+  assert.equal(state.expired_reason, null)
+  assert.equal(state.days_past_due, 2)
+  assert.equal(state.payment_grace_days, PAYMENT_GRACE_DAYS)
+  assert.equal(state.payment_grace_days_remaining, PAYMENT_GRACE_DAYS - 2)
+  assert.ok(state.payment_grace_ends_at)
+  assert.equal(state.capabilities["washes.create"], true)
+})
+
+test("la tolérance est un délai, pas un sursis : au-delà, lecture seule", () => {
+  const state = computeSubscriptionState(paidLapsedBy(PAYMENT_GRACE_DAYS + 1))
+
+  assert.equal(state.past_due, true)
+  assert.equal(state.status, "expired")
+  assert.equal(state.is_expired, true)
+  assert.equal(state.read_only, true)
+  assert.equal(state.expired_reason, "payment")
+  assert.equal(state.payment_grace_days_remaining, 0)
+  assert.equal(state.capabilities["washes.create"], false)
+  // Le rapport reste borné, comme après un essai : on ne prend pas les
+  // données en otage, on ferme seulement l'écriture.
+  assert.equal(state.report_window_days, EXPIRED_REPORT_WINDOW_DAYS)
+})
+
+test("la tolérance ferme à l'instant exact de son terme", () => {
+  // Une demi-journée avant la fin : encore ouvert.
+  const justInside = computeSubscriptionState(paidLapsedBy(PAYMENT_GRACE_DAYS - 0.5))
+  assert.equal(justInside.read_only, false)
+  assert.equal(justInside.status, "active")
+  assert.equal(justInside.payment_grace_days_remaining, 1)
+
+  // À l'instant pile : fermé. Même règle que l'échéance d'essai — une date
+  // qui « compte encore » est une date qu'on ne tient jamais.
+  const exact = computeSubscriptionState(paidLapsedBy(PAYMENT_GRACE_DAYS))
+  assert.equal(exact.read_only, true)
+  assert.equal(exact.expired_reason, "payment")
+})
+
+test("un forfait actif sans échéance n'est pas un impayé", () => {
+  // On ne ferme jamais un espace sur une donnée absente : une activation
+  // manuelle sans date doit rester utilisable.
+  const state = computeSubscriptionState({
+    status: "active",
+    current_period_end: null,
+    plan_code: "pro",
+    plan_price_cents: 2_000_000,
+    plan_features: {},
+    now: NOW,
+  })
+
+  assert.equal(state.past_due, false)
+  assert.equal(state.read_only, false)
+  assert.equal(state.payment_grace_ends_at, null)
+  assert.equal(state.payment_grace_days_remaining, 0)
+})
+
+test("un forfait payant à échéance future n'est pas en retard", () => {
+  const state = computeSubscriptionState({
+    status: "active",
+    current_period_end: new Date(NOW.getTime() + 10 * DAY),
+    plan_code: "pro",
+    plan_price_cents: 2_000_000,
+    plan_features: {},
+    now: NOW,
+  })
+
+  assert.equal(state.past_due, false)
+  assert.equal(state.status, "active")
+  assert.equal(state.days_past_due, 0)
+})
+
+test("un essai échu se distingue d'un impayé dans les dates affichées", () => {
+  const state = computeSubscriptionState(trialEndingIn(-1))
+
+  assert.equal(state.expired_reason, "trial")
+  assert.equal(state.past_due, false)
+  assert.ok(state.trial_ends_at, "un essai échu garde sa date d'échéance")
+  assert.equal(state.payment_grace_ends_at, null)
+})
+
+test("un impayé n'affiche pas de dates d'essai", () => {
+  const state = computeSubscriptionState(paidLapsedBy(PAYMENT_GRACE_DAYS + 3))
+  assert.equal(state.trial_ends_at, null)
+  assert.equal(state.trial_started_at, null)
+})
+
+test("le message de refus nomme la vraie cause", () => {
+  const lapsed = computeSubscriptionState(paidLapsedBy(PAYMENT_GRACE_DAYS + 3))
+  const message = readOnlyMessage(lapsed)
+  assert.match(message, /échéance de votre forfait/i)
+  assert.doesNotMatch(message, /essai gratuit/i)
+
+  const trial = computeSubscriptionState(trialEndingIn(-1))
+  assert.match(readOnlyMessage(trial), /essai gratuit/i)
+
+  const cancelled = computeSubscriptionState({
+    status: "cancelled",
+    current_period_end: null,
+    plan_code: "pro",
+    plan_price_cents: 2_000_000,
+    plan_features: {},
+    now: NOW,
+  })
+  assert.match(readOnlyMessage(cancelled), /résilié/i)
+})
+
+test("un forfait payant expose les jours qui lui restent, même négatifs", () => {
+  // La console trie « à renouveler sous 7 jours » sur ce champ. Avant, il
+  // valait 0 pour tout forfait payant : la liste affichait donc toutes les
+  // stations actives, et n'alertait sur rien.
+  const soon = computeSubscriptionState({
+    status: "active",
+    current_period_end: new Date(NOW.getTime() + 3 * DAY),
+    plan_code: "pro",
+    plan_price_cents: 2_000_000,
+    plan_features: {},
+    now: NOW,
+  })
+  assert.equal(soon.days_remaining, 3)
+
+  const late = computeSubscriptionState(paidLapsedBy(9))
+  assert.equal(late.days_remaining, -9, "un retard se lit en négatif, pas en zéro")
+
+  const undated = computeSubscriptionState({
+    status: "active",
+    current_period_end: null,
+    plan_code: "pro",
+    plan_price_cents: 2_000_000,
+    plan_features: {},
+    now: NOW,
+  })
+  assert.equal(undated.days_remaining, 0)
 })

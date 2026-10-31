@@ -160,6 +160,8 @@ export interface RevenueAtRisk {
   price_cents: number
   current_period_end: string
   days_overdue: number
+  /** Jours restants avant la lecture seule ; 0 une fois la tolérance écoulée. */
+  days_until_read_only: number
 }
 
 export interface RevenuePending {
