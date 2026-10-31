@@ -53,6 +53,7 @@ const ALLOWED_UNGUARDED: Record<string, string> = {
   "admin.ts|POST /organizations/:id/activate": "console éditeur : montée sous requireOperator",
   "admin.ts|POST /organizations/:id/suspend": "console éditeur : montée sous requireOperator",
   "admin.ts|POST /organizations/:id/extend-trial": "console éditeur : montée sous requireOperator",
+  "admin.ts|POST /organizations/:id/extend-grace": "console éditeur : montée sous requireOperator",
   "admin.ts|POST /organizations/:id/schedule-deletion": "console éditeur : montée sous requireOperator",
   "admin.ts|POST /organizations/:id/cancel-deletion": "console éditeur : montée sous requireOperator",
   "admin.ts|POST /organizations/:id/purge": "console éditeur : montée sous requireOperator",

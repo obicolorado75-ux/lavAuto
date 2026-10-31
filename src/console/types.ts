@@ -19,6 +19,12 @@ export interface ConsoleOrganization {
   days_remaining: number | null
   past_due: boolean
   days_past_due: number
+  /** Durée de la tolérance appliquée, en jours. */
+  payment_grace_days: number
+  /** Jours restants avant la lecture seule ; 0 une fois la tolérance écoulée. */
+  payment_grace_days_remaining: number
+  payment_grace_ends_at: string | null
+  expired_reason: "trial" | "payment" | "cancelled" | null
   /** Suppression programmée — l'accès est déjà coupé. */
   pending_deletion: boolean
   deletion_requested_at: string | null

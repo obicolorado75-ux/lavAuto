@@ -1777,6 +1777,20 @@ export function readCaCertificate(raw: string): string | null {
 }
 
 export async function initDatabaseSchema(): Promise<boolean> {
+  // Filet de sécurité : `node --test` lancé à la main n'est pas `npm test`.
+  // Sans le script de la suite, `NODE_ENV` reste à « development » et la base
+  // ouverte est celle du développeur, sur disque : les tests écriraient dans
+  // ses vraies données — abonnements activés, intentions de paiement, comptes
+  // créés. C'est arrivé une fois ; ce garde-fou existe pour que cela n'arrive
+  // plus.
+  if (process.env.NODE_TEST_CONTEXT && env.NODE_ENV !== "test") {
+    throw new Error(
+      "Les tests tournent sous `node --test` sans NODE_ENV=test : ils ouvriraient la base de " +
+        "développement sur disque et la modifieraient. Lancez `npm test` (ou " +
+        "`npm test -- tests/fichier.test.ts`).",
+    )
+  }
+
   // La base à ouvrir est décidée par une fonction pure, testée à part. En mode
   // test, elle ignore `DATABASE_URL` : une suite qui écrirait dans la base de
   // production (ou dans celle du développeur) serait pire qu'une suite rouge.

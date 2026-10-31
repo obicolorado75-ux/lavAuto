@@ -359,3 +359,9 @@ expose `payment_grace_days_remaining` et le revenu à risque affiche la date de
 fermeture. L'opérateur voit combien de jours il lui reste pour encaisser avant
 que l'accès ne se ferme de lui-même.
 
+Et si le virement est annoncé mais pas encore arrivé, la fiche station offre
+un **délai de paiement** (`extend-grace`, 1 à 60 jours) : l'échéance recule,
+rien n'est activé, rien n'est facturé, l'écriture se rouvre immédiatement. Un
+geste commercial ne doit jamais ressembler à un forfait offert — il déplace une
+date, il ne change pas de plan.
+

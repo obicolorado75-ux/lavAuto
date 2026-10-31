@@ -186,6 +186,7 @@ function describe(row: OrganizationRow, now: Date) {
     days_past_due: state.days_past_due,
     // Combien de jours il reste avant la fermeture réelle : c'est le chiffre
     // qui décide si l'opérateur appelle le client ou attend son virement.
+    payment_grace_days: state.payment_grace_days,
     payment_grace_days_remaining: state.payment_grace_days_remaining,
     payment_grace_ends_at: state.payment_grace_ends_at,
     expired_reason: state.expired_reason,
@@ -686,6 +687,102 @@ export function createAdminRouter() {
     }),
   )
 
+
+  // -------------------------------------------------------------------------
+  // POST /api/v1/admin/organizations/:id/extend-grace — accorder un délai.
+  //
+  // Le pendant de `extend-trial` pour un forfait **payant** : la station est
+  // échue, on ne veut ni l'activer (rien n'a été payé) ni la laisser fermer
+  // (le virement arrive). Ce geste pousse l'échéance de quelques jours sans
+  // toucher au forfait ni au montant dû.
+  //
+  // Trois choix :
+  //
+  //   1. **On n'ampute jamais du temps déjà payé.** La nouvelle échéance part
+  //      du maximum entre maintenant et l'échéance courante : un client qui
+  //      appelle trois jours avant son terme reçoit bien ses quinze jours.
+  //   2. **Les relances repartent.** `renewal_read_only` a déjà été envoyée au
+  //      moment de la fermeture ; sans cet effacement, le client ne recevrait
+  //      plus rien et retomberait en lecture seule sans préavis.
+  //   3. **Le geste est écrit chez le client**, pas seulement dans la console :
+  //      son propriétaire doit pouvoir lire qu'on lui a accordé un délai, et
+  //      pourquoi.
+  // -------------------------------------------------------------------------
+  r.post(
+    "/organizations/:id/extend-grace",
+    asyncRoute(async (req, res) => {
+      const id = parseId(req.params.id)
+      const operator = req.operator!
+      const input = body(
+        z
+          .object({
+            days: z.number().int().min(1).max(60),
+            reason: z.string().trim().min(3).max(300),
+          })
+          .strip(),
+        req.body,
+      )
+
+      const pool = adminDb()
+      const currentQ = await pool.query(
+        "SELECT status, current_period_end FROM subscriptions WHERE organization_id = $1::uuid",
+        [id],
+      )
+      if (!currentQ.rowCount) {
+        throw new HttpError(404, "subscription_not_found", "Cette station n'a aucun abonnement.")
+      }
+      const row = currentQ.rows[0] as { status: string; current_period_end: string | null }
+
+      // Un essai se prolonge avec `extend-trial` : la question posée n'est pas
+      // la même (convaincre quelqu'un qui n'a rien acheté vs laisser respirer
+      // quelqu'un qui paie). Un abonnement suspendu se réactive, il ne se
+      // prolonge pas.
+      if (row.status !== "active") {
+        throw new HttpError(
+          409,
+          "subscription_not_active",
+          row.status === "trialing"
+            ? "Cette station est en essai : utilisez « Prolonger l'essai »."
+            : "Cette station n'a pas de forfait payant en cours. Activez un forfait plutôt que d'accorder un délai.",
+        )
+      }
+
+      const now = new Date()
+      const existing = row.current_period_end ? new Date(row.current_period_end) : null
+      const base = existing && existing.getTime() > now.getTime() ? existing : now
+      const periodEnd = new Date(base.getTime() + input.days * 86_400_000)
+
+      await pool.query(
+        `UPDATE subscriptions
+            SET current_period_end = $2::timestamptz, updated_at = now()
+          WHERE organization_id = $1::uuid`,
+        [id, periodEnd.toISOString()],
+      )
+
+      // Une nouvelle échéance, donc un nouveau cycle de relances.
+      await pool.query(
+        "DELETE FROM subscription_reminders WHERE organization_id = $1::uuid AND kind LIKE 'renewal_%'",
+        [id],
+      )
+
+      await auditPlatformAction(pool, id, operator.email, "subscription.grace_extended", id, {
+        days: input.days,
+        reason: input.reason,
+        period_end: periodEnd.toISOString(),
+        previous_period_end: row.current_period_end,
+        operator_email: operator.email,
+      })
+      invalidateSubscriptionCache(id)
+
+      res.json({
+        organization_id: id,
+        status: "active",
+        current_period_end: periodEnd.toISOString(),
+        days: input.days,
+        read_only: false,
+      })
+    }),
+  )
 
   // -------------------------------------------------------------------------
   // Suppression d'une station, en deux temps.

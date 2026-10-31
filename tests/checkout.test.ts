@@ -355,3 +355,53 @@ test("le planificateur relance un forfait payant proche de l'échéance", async 
     undefined,
   )
 })
+
+test("après la fermeture, le client ne reçoit plus qu'un seul courriel", async () => {
+  // Le pire des deux mondes : un client parti qui continue de recevoir des
+  // relances. Une fermeture est un fait, pas un fil de discussion — on écrit
+  // une fois, puis on se taît. Toute reprise passe par une action humaine
+  // (activation ou délai accordé), qui efface les relances et rouvre le cycle.
+  await pool.query(
+    `UPDATE subscriptions
+        SET plan_id = (SELECT id FROM plans WHERE code = 'pro'),
+            status = 'active',
+            current_period_end = now() - interval '12 days'
+      WHERE organization_id = $1::uuid`,
+    [organizationId],
+  )
+  await pool.query("DELETE FROM subscription_reminders WHERE organization_id = $1::uuid", [
+    organizationId,
+  ])
+  const { invalidateSubscriptionCache } = await import("../server/entitlements.ts")
+  invalidateSubscriptionCache(organizationId)
+
+  // La station est bien en lecture seule, et la cause est l'impayé.
+  const state = await (await api("/api/v1/subscription", { as: "demo@washpilot.ci" })).json()
+  assert.equal(state.read_only, true)
+  assert.equal(state.expired_reason, "payment")
+
+  const first = await runSubscriptionReminders(pool)
+  const mine = first.find((o) => o.organization_id === organizationId)
+  assert.ok(mine, "la fermeture est annoncée")
+  assert.equal(mine.kind, "renewal_read_only")
+
+  // Trois passages de plus, à une heure d'intervalle : silence total.
+  for (const offset of [1, 2, 3]) {
+    const later = await runSubscriptionReminders(pool, new Date(Date.now() + offset * 3_600_000))
+    assert.equal(
+      later.find((o) => o.organization_id === organizationId),
+      undefined,
+      `aucun courriel au passage ${offset}`,
+    )
+  }
+
+  // Et aucune relance d'essai n'a été écrite pour ce client payant.
+  const kinds = await pool.query(
+    "SELECT kind FROM subscription_reminders WHERE organization_id = $1::uuid",
+    [organizationId],
+  )
+  assert.deepEqual(
+    kinds.rows.map((r: { kind: string }) => r.kind),
+    ["renewal_read_only"],
+  )
+})
