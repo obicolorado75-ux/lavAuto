@@ -22,28 +22,83 @@ import {
 export const MIN_PASSWORD_LENGTH = 5;
 
 // ---------------------------------------------------------------------------
-// Minimal in-memory rate limiting for credential endpoints (per IP).
+// Rate limiting for credential endpoints — two stacked layers.
+//
+//   1. Par IP, fenêtre glissante : borne le bruit de fond (scanners, scripts
+//      mal écrits). Les GET /auth/me et PATCH profil restent à cette couche
+//      large, sinon on bloquerait des stations entières derrière une même
+//      connexion réseau.
+//   2. Par compte visé, sur login/register/forgot-password uniquement : c'est
+//      la couche qui compte contre un attaquant patient qui rebondit d'une
+//      adresse IP à l'autre (botnet, proxys gratuits) pour deviner le mot de
+//      passe d'UN SEUL gérant. Une fois le budget du compte épuisé, TOUTES les
+//      adresses IP sont également repoussées — l'IP rotative ne sert plus à rien.
+//
+// Volontairement en mémoire : un déploiement mono-serveur (Docker Compose,
+// Vercel par région) rend Redis superflu ici ; la perdition du compteur au
+// redémarrage est acceptable car elle n'ouvre qu'une nouvelle fenêtre, jamais
+// une levée de blocage en cours. Si le parc passe à plusieurs instances derrièr
+// un répartiteur, remplacer ces Maps par un store partagé sera LE seul point
+// à changer.
 // ---------------------------------------------------------------------------
 const WINDOW_MS = 15 * 60 * 1000;
-const MAX_ATTEMPTS = 30;
-const attempts = new Map<string, { count: number; resetAt: number }>();
+const MAX_ATTEMPTS = 30; // par IP, toutes fins confondues
+const ACCOUNT_WINDOW_MS = 15 * 60 * 1000;
+const MAX_ACCOUNT_ATTEMPTS = 8; // par compte ciblé (login), ou expéditeur (register/forgot)
 
-function assertRateLimit(req: Request) {
-  const key = req.ip || "unknown";
+interface Counter {
+  count: number;
+  resetAt: number;
+}
+
+function consumeBudget(store: Map<string, Counter>, key: string, max: number, windowMs: number) {
   const now = Date.now();
-  const entry = attempts.get(key);
+  const entry = store.get(key);
   if (!entry || entry.resetAt < now) {
-    attempts.set(key, { count: 1, resetAt: now + WINDOW_MS });
+    store.set(key, { count: 1, resetAt: now + windowMs });
     return;
   }
   entry.count += 1;
-  if (entry.count > MAX_ATTEMPTS) {
+  if (entry.count > max) {
     throw new HttpError(
       429,
       "too_many_requests",
       "Trop de tentatives. Patientez quelques minutes puis réessayez.",
     );
   }
+}
+
+const ipAttempts = new Map<string, Counter>();
+const accountAttempts = new Map<string, Counter>();
+
+// Purge périodique : sans elle, les deux Maps grossiraient indéfiniment sous
+// un trafic varié (une clé par IP vue). Un setInterval non "ref" ne retient
+// pas le processus ouvert — les tests et tsx s'arrêtent normalement.
+const purgeTimer = setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of ipAttempts) if (entry.resetAt < now) ipAttempts.delete(key);
+  for (const [key, entry] of accountAttempts) if (entry.resetAt < now) accountAttempts.delete(key);
+}, WINDOW_MS);
+purgeTimer.unref?.();
+
+function assertRateLimit(req: Request) {
+  consumeBudget(ipAttempts, req.ip || "unknown", MAX_ATTEMPTS, WINDOW_MS);
+}
+
+/**
+ * Budget par CIBLE absolue (e-mail soumis), en plus du budget par IP.
+ * Volontairement sans clé d'IP : c'est précisément ce qui rend la couche
+ * efficace contre un attaquant qui change d'adresse entre chaque tentative.
+ * Les tentatives échouées ne sont jamais récompensées par un reset — sinon
+ * il suffirait de se tromper pour recharger son propre compteur.
+ */
+function assertTargetRateLimit(target: string) {
+  consumeBudget(accountAttempts, `t:${target.toLowerCase()}`, MAX_ACCOUNT_ATTEMPTS, ACCOUNT_WINDOW_MS);
+}
+
+/** Réinitialise le budget d'un compte après une authentification réussie. */
+export function resetAuthThrottle(target: string) {
+  accountAttempts.delete(`t:${target.toLowerCase()}`);
 }
 
 const registerSchema = z.object({
@@ -218,6 +273,7 @@ export function createAuthRouter() {
       }
       const { firstName, lastName, email, password, phone, organizationName } =
         parsed.data;
+      assertTargetRateLimit(email);
       const pool = getPool();
       if (!pool)
         throw new HttpError(
@@ -304,6 +360,7 @@ export function createAuthRouter() {
         );
       }
       const { email, password } = parsed.data;
+      assertTargetRateLimit(email);
       const pool = getPool();
       if (!pool)
         throw new HttpError(
@@ -337,6 +394,10 @@ export function createAuthRouter() {
         );
       }
 
+      // Authentification réussie : le budget du compte est rechargé. Un client
+      // légitime qui rebondit entre deux postes ne doit pas être puni pour les
+      // tentatives ratées antérieures — mais uniquement après un SUCCÈS.
+      resetAuthThrottle(email);
       const token = await createSession(pool, row.id);
       setSessionCookie(req, res, token);
       res.json({ ...(await buildMePayload(row.id)), session_token: token });
@@ -485,6 +546,7 @@ export function createAuthRouter() {
         );
       }
       const { email } = parsed.data;
+      assertTargetRateLimit(email);
       const pool = getPool();
       if (!pool)
         throw new HttpError(
