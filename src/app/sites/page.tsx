@@ -326,7 +326,7 @@ export default function SitesPage() {
                 }
               />
             ) : (
-              <div className="overflow-x-auto rounded-lg border">
+              <div className="overflow-x-auto table-3d">
                 <Table>
                   <TableHeader>
                     <TableRow>

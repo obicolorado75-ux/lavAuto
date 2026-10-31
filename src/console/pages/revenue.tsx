@@ -160,7 +160,7 @@ export function ConsoleRevenue() {
         title="Trésorerie et revenu, sur douze mois"
         description="Les barres sont l'argent reçu le mois où il arrive ; la ligne est le même argent étalé sur la période qu'il couvre. Un client qui règle six mois d'avance fait une barre haute suivie de cinq barres vides — la ligne, elle, ne bouge pas."
       >
-        <div className="px-2 py-4">
+        <div className="chart-3d chart-reveal px-2 py-4">
           <ResponsiveContainer width="100%" height={260}>
             <ComposedChart data={chart} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" vertical={false} />
@@ -191,13 +191,25 @@ export function ConsoleRevenue() {
                   name === "encaisse" ? "Encaissé" : "Revenu reconnu",
                 ]}
               />
-              <Bar dataKey="encaisse" fill="#38bdf8" radius={[4, 4, 0, 0]} maxBarSize={28} />
+              {/* 600 ms : la durée de tous les tracés de l'application. Le défaut
+                  de Recharts (1,5 s) donne l'impression d'un écran qui peine à
+                  charger, alors qu'il a déjà ses données. */}
+              <Bar
+                dataKey="encaisse"
+                fill="#38bdf8"
+                radius={[4, 4, 0, 0]}
+                maxBarSize={28}
+                animationDuration={600}
+                animationEasing="ease-out"
+              />
               <Line
                 type="monotone"
                 dataKey="reconnu"
                 stroke="#fbbf24"
                 strokeWidth={2}
                 dot={false}
+                animationDuration={600}
+                animationEasing="ease-out"
               />
             </ComposedChart>
           </ResponsiveContainer>

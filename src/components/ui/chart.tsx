@@ -38,12 +38,27 @@ function useChart() {
   return context
 }
 
+/**
+ * Cadre d'un graphique.
+ *
+ * `elevated` (actif par défaut) branche la grammaire 3D des graphiques :
+ * au survol, le SVG reçoit une ombre portée teintée de la couleur d'action
+ * (`.chart-3d`) ; la géométrie, elle, ne bouge pas — on lit un graphique, on
+ * ne le manipule pas, et faire glisser les axes sous le curseur au moment où
+ * l'on vise une valeur serait contre-productif.
+ *
+ * `reveal` pose le cadre par un fondu de 8 px à l'apparition. Le tracé des
+ * séries reste animé par Recharts (`animationDuration` sur chaque `Area`,
+ * `Bar`, `Line`) : cette animation-ci ne fait que l'accueillir.
+ */
 function ChartContainer({
   id,
   className,
   children,
   config,
   initialDimension = INITIAL_DIMENSION,
+  elevated = true,
+  reveal = true,
   ...props
 }: React.ComponentProps<"div"> & {
   config: ChartConfig
@@ -54,6 +69,10 @@ function ChartContainer({
     width: number
     height: number
   }
+  /** Ombre colorée et transitions au survol (`.chart-3d`). */
+  elevated?: boolean
+  /** Fondu d'apparition au montage (`.chart-reveal`). */
+  reveal?: boolean
 }) {
   const uniqueId = React.useId()
   const chartId = `chart-${id ?? uniqueId.replace(/:/g, "")}`
@@ -64,7 +83,10 @@ function ChartContainer({
         data-slot="chart"
         data-chart={chartId}
         className={cn(
-          "flex aspect-video justify-center text-xs [&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden",
+          "flex aspect-video justify-center text-xs",
+          reveal && "chart-reveal",
+          elevated && "chart-3d",
+          "[&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden",
           className
         )}
         {...props}

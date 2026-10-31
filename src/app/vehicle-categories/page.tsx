@@ -360,7 +360,7 @@ export default function VehicleCategoriesPage() {
             {canManage && <BlockedReason reason={catalogWrite.reason} />}
             {loading && <TableSkeleton rows={4} cols={3} label="Synchronisation des catégories" />}
             {!loading && !error && (
-              <div className="overflow-x-auto rounded-lg border">
+              <div className="overflow-x-auto table-3d">
                 <Table>
                   <TableHeader>
                     <TableRow>

@@ -25,7 +25,7 @@ import { useIsDesktop } from "@/hooks/use-media-query"
 import { Card } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 import {
-  HOVER_LIFT,
+  HOVER_CARD,
   HOVER_SCALE,
   IN_VIEW,
   SPRING,
@@ -115,9 +115,10 @@ export const Surface = forwardRef<HTMLDivElement, SurfaceProps>(function Surface
  * Carte de tableau de bord : apparaît en cascade, décolle au survol,
  * s'enfonce au clic.
  *
- * L'échelle au survol est de 1 % (`HOVER_LIFT`). Sur une grille de quatre
+ * Le geste est `HOVER_CARD` (1,2 % et 4 px). Sur une grille de quatre
  * indicateurs, 5 % feraient chevaucher les voisines et donneraient
- * l'impression que la grille tremble au passage de la souris.
+ * l'impression que la grille tremble au passage de la souris ; l'ombre portée
+ * de `.card-3d` porte l'essentiel de l'impression de relief.
  */
 interface ElevatedCardProps extends SurfaceProps {
   /** Rang dans la grille : sert au décalage de la cascade. */
@@ -144,7 +145,7 @@ export const ElevatedCard = forwardRef<HTMLDivElement, ElevatedCardProps>(
           // apparaîtrait plus d'une seconde après la première.
           delay: Math.min(index, 10) * 0.055,
         }}
-        whileHover={HOVER_LIFT}
+        whileHover={HOVER_CARD}
         whileTap={readOnly ? undefined : TAP_PRESS}
         {...props}
       >
@@ -182,7 +183,7 @@ export function MotionCard({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ ...SPRING.soft, delay: Math.min(index, 10) * 0.055 }}
-      whileHover={HOVER_LIFT}
+      whileHover={HOVER_CARD}
       {...props}
     >
       {children}

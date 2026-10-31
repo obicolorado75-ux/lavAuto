@@ -462,7 +462,7 @@ export default function ReportsPage() {
         </div>
 
         <div className="grid gap-4 xl:grid-cols-2">
-          <Card>
+          <Card interactive hoverScale="tight">
             <CardHeader>
               <CardTitle>Encaissements et dépenses</CardTitle>
               <CardDescription>
@@ -486,7 +486,7 @@ export default function ReportsPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card interactive hoverScale="tight">
             <CardHeader>
               <CardTitle>
                 Lavages par {activeGranularity === "month" ? "mois" : activeGranularity === "week" ? "semaine" : "jour"}
@@ -706,7 +706,7 @@ function BreakdownTable({
       </CardHeader>
       <CardContent>
         {loading ? <TableSkeleton rows={4} cols={columns.length} label={`Chargement : ${title}`} /> : (
-          <div className="overflow-x-auto rounded-lg border">
+          <div className="overflow-x-auto table-3d">
             <Table>
               <TableHeader><TableRow>{columns.map((column) => <TableHead key={column} className="text-center">{column}</TableHead>)}</TableRow></TableHeader>
               <TableBody>

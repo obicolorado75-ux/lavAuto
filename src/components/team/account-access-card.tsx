@@ -205,7 +205,7 @@ export function AccountAccessCard({
               {accountsLoading ? (
                 <TableSkeleton rows={3} cols={4} label="Chargement des comptes" />
               ) : accounts && accounts.length > 0 ? (
-                <div className="overflow-x-auto rounded-lg border">
+                <div className="overflow-x-auto table-3d">
                   <Table>
                     <TableHeader>
                       <TableRow>

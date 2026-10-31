@@ -27,6 +27,11 @@ export const DURATION = {
    *  perçoit plus une transition mais un saut ; au-dessus de 150 ms l'interface
    *  traîne sous le curseur. */
   hover: 0.12,
+  /** 160 ms — survol d'une SURFACE (carte, ligne de tableau, graphique).
+   *  Une ombre portée qui apparaît en 120 ms « claque » : elle a besoin d'un
+   *  souffle de plus pour se lire comme un décollement et non comme un clignotement.
+   *  Même valeur que `--motion-hover` dans `src/index.css`. */
+  hoverShadow: 0.16,
   /** 240 ms — apparition d'un élément : carte, ligne, badge, info-bulle. */
   enter: 0.24,
   /** 180 ms — disparition. Toujours plus rapide que l'apparition : on ne fait
@@ -155,6 +160,36 @@ export const staggerItem: Variants = {
  * l'essentiel du message ; l'échelle ne fait que l'appuyer.
  */
 export const HOVER_LIFT = { scale: 1.01, y: -2 } as const
+
+/**
+ * Survol d'une carte posée sur une grille : 1,2 % et 4 px de décollement.
+ *
+ * C'est la version « 3D » du geste : le décollement est deux fois plus marqué
+ * que `HOVER_LIFT`, l'ombre portée suit dans la couche CSS `.card-3d`. Réservé
+ * aux cartes qui portent une information (indicateur, graphique, liste) — une
+ * tuile de bouton reste sur `HOVER_SCALE`, plus discrète.
+ */
+export const HOVER_CARD = { scale: 1.012, y: -4 } as const
+
+/**
+ * Survol d'un graphique : presque rien (0,4 %, 2 px).
+ *
+ * Un graphique n'est pas un objet qu'on manipule mais une donnée qu'on lit :
+ * le faire grandir déplacerait les repères (axes, légende) au moment où l'œil
+ * les vise. Le signal de survol est porté par l'ombre colorée du SVG
+ * (`.chart-3d`), pas par la géométrie.
+ */
+export const HOVER_CHART = { scale: 1.004, y: -2 } as const
+
+/**
+ * Durée d'un survol de surface, en millisecondes.
+ *
+ * Exportée pour les rares endroits qui doivent la donner au CSS (style inline)
+ * et pour les tests : `--motion-hover` dans `src/index.css` doit valoir
+ * exactement cette valeur, sinon le mouvement JS et le mouvement CSS se
+ * désynchronisent à la première retouche.
+ */
+export const HOVER_MS = DURATION.hoverShadow * 1000
 
 /** Survol d'un bouton ou d'une tuile : échelle seule, sans décollement. */
 export const HOVER_SCALE = { scale: 1.02 } as const

@@ -303,7 +303,7 @@ export default function TeamPerformancePage() {
         </div>
 
         <div className="grid gap-6 lg:grid-cols-2">
-          <Card>
+          <Card interactive hoverScale="tight">
             <CardHeader>
               <CardTitle>Lavages par jour</CardTitle>
               <CardDescription>Volume de travail de la station, lavages annulés exclus.</CardDescription>
@@ -341,7 +341,7 @@ export default function TeamPerformancePage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card interactive hoverScale="tight">
             <CardHeader>
               <CardTitle>Répartition du travail</CardTitle>
               <CardDescription>
