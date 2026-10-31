@@ -205,10 +205,6 @@ export function CreateExpenseModal({
     formState: { errors, isSubmitting },
   } = form
 
-  /* eslint-disable react-hooks/incompatible-library -- `watch()` de React Hook
-  Form ne peut pas être mémoïsé : le compilateur React renonce à mémoïser ce
-  formulaire, sans risque fonctionnel (les modales rendent peu et relisent leurs
-  champs à chaque rendu). */
   const category = watch("category")
   const amount = watch("amount")
   const paymentMethod = watch("payment_method")

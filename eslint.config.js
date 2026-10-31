@@ -47,9 +47,23 @@ export default defineConfig([
       'src/lib/permissions.tsx',
       'src/lib/subscription.tsx',
       'src/console/auth.tsx',
+      'src/components/search-context.tsx',
     ],
     rules: {
       'react-refresh/only-export-components': 'off',
+    },
+  },
+  {
+    // react-hook-form : `watch()` est une API non mémoïsable, le React Compiler
+    // (eslint-plugin-react-hooks v7) signale donc ces modales "Compilation
+    // Skipped". C'est un comportement ATTENDU et sûr ici : les modales sont des
+    // feuilles de rendu re-montées à chaque ouverture, jamais mémoïsées par un
+    // parent (pas de risque de UI obsolète). La migration watch() -> useWatch()
+    // est suivie séparément ; en attendant, on documente l'exception plutôt que
+    // de brider la règle globalement.
+    files: ['src/components/modals/**/*.tsx'],
+    rules: {
+      'react-hooks/incompatible-library': 'off',
     },
   },
 ])
