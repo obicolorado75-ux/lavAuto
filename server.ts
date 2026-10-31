@@ -10,6 +10,7 @@ import { env } from "./server/env.ts"
 import { initDatabaseSchema, isDatabaseReady, closeDatabase, getPool } from "./server/db.ts"
 import { startReminderScheduler } from "./server/reminders.ts"
 import { mountApi, apiErrorHandler } from "./server/app.ts"
+import { securityHeaders } from "./server/security-headers.ts"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -19,12 +20,11 @@ const port = env.PORT
 app.disable("x-powered-by")
 app.set("trust proxy", 1)
 
-app.use((_req, res, next) => {
-  res.setHeader("X-Content-Type-Options", "nosniff")
-  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin")
-  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-  next()
-})
+// En-têtes de sécurité (nosniff, referrer, permissions, X-Frame-Options, CSP,
+// HSTS conditionnel) : middleware factorisé dans server/security-headers.ts,
+// partagé avec l'entrée serverless pour que les deux déploiements ne divergent
+// jamais.
+app.use(securityHeaders)
 
 app.use(cors({
   origin(origin, callback) {

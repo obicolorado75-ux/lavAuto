@@ -72,3 +72,21 @@ test("le build serverless inclut la fonction littérale", () => {
   const entry = readFileSync(path.join(root, "api", "index.ts"), "utf8")
   assert.match(entry, /vercel-bundle\.js/)
 })
+
+test("les deux entrées serveur partagent le même middleware d'en-têtes", () => {
+  // La duplication des en-têtes de sécurité entre server.ts et le déploiement
+  // Vercel est exactement le genre de dérive silencieuse qu'un grep attrape :
+  // les deux fichiers doivent importer `securityHeaders` (server/security-
+  // headers.ts) et ne plus poser d'en-tête de sécurité à la main.
+  const classic = readFileSync(path.join(root, "server.ts"), "utf8")
+  const serverless = readFileSync(path.join(root, "server", "vercel-app.ts"), "utf8")
+  for (const [name, source] of [["server.ts", classic], ["server/vercel-app.ts", serverless]] as const) {
+    assert.match(source, /import \{ securityHeaders \} from/, `${name} doit importer le middleware partagé`)
+    assert.match(source, /app\.use\(securityHeaders\)/, `${name} doit monter le middleware partagé`)
+    assert.doesNotMatch(
+      source,
+      /setHeader\("X-Content-Type-Options"/,
+      `${name} ne doit plus définir d'en-têtes de sécurité en dur`,
+    )
+  }
+})
