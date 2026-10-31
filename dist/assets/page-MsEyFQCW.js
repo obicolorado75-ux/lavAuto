@@ -1,1 +1,0 @@
-import{n as e}from"./createLucideIcon-BsU3l3Za.js";import{t}from"./app-error-state-BF7eCO3H.js";var n=e();function r(){return(0,n.jsx)(t,{code:`404`,title:`Page introuvable`,description:`Cette page n’existe pas ou n’est plus disponible.`})}function i(){return(0,n.jsx)(r,{})}export{i as default};

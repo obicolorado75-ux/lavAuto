@@ -1,1 +1,0 @@
-import{_ as e}from"./index-CFGIRze5.js";function t({title:t,description:n,type:r=`default`,action:i}){e.add({title:t,description:n,type:r,...i&&{actionProps:{children:i.label,onClick:i.onClick}}})}function n(e,n){t({title:e,description:n,type:`success`})}function r(e,n){t({title:e,description:n,type:`error`})}export{n,r as t};

@@ -1,1 +1,0 @@
-import{r as e}from"./rolldown-runtime-XKyaHtl9.js";import{r as t}from"./createLucideIcon-BsU3l3Za.js";import{a as n,i as r,o as i}from"./proxy-BGL3087g.js";var a=e(t(),1);function o(){!n.current&&r();let[e]=(0,a.useState)(i.current);return e}export{o as t};
