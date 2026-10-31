@@ -32,6 +32,9 @@ export const EXPORT_QUERIES: { key: string; sql: string }[] = [
   },
   { key: "subscription", sql: `SELECT s.status, s.current_period_end, s.created_at, s.updated_at, p.code AS plan_code, p.name AS plan_name
           FROM subscriptions s JOIN plans p ON p.id = s.plan_id WHERE s.organization_id=$1::uuid` },
+  // Le logo est utile dans une sauvegarde : c'est la seule copie de
+  // l'identité de la station en dehors de la base.
+  { key: "organization_branding", sql: "SELECT * FROM organization_branding WHERE organization_id=$1::uuid" },
   { key: "sites", sql: "SELECT * FROM sites WHERE organization_id=$1::uuid ORDER BY created_at" },
   { key: "service_categories", sql: "SELECT * FROM service_categories WHERE organization_id=$1::uuid ORDER BY created_at" },
   { key: "vehicle_categories", sql: "SELECT * FROM vehicle_categories WHERE organization_id=$1::uuid ORDER BY created_at" },

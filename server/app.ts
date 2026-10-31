@@ -4,6 +4,7 @@ import { HttpError, requireSession } from "./auth.ts"
 import { requireTenantContext } from "./tenant.ts"
 import { createAuthRouter } from "./auth-router.ts"
 import { createOnboardingRouter } from "./onboarding.ts"
+import { createBrandingRouter } from "./branding.ts"
 import { createApiRouter } from "./api.ts"
 import { createOperationsRouter } from "./operations.ts"
 import { createUtilitiesRouter } from "./utilities.ts"
@@ -101,7 +102,7 @@ export function mountApi(app: Express) {
   app.use("/api/v1", createCheckoutRouter())
   app.use("/api/v1", createAccessRouter())
   app.use("/api/v1", createNotificationsRouter())
-  app.use("/api/v1", createNotificationsRouter())
+  app.use("/api/v1", createBrandingRouter())
   app.use("/api/v1", createAuditLogRouter())
   app.use("/api/v1", createTeamRouter())
   app.use("/api/v1", createReportsRouter())

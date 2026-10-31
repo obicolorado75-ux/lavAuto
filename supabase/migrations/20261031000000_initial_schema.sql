@@ -78,6 +78,34 @@ ALTER TABLE sites ADD COLUMN IF NOT EXISTS email text;
 ALTER TABLE sites ADD COLUMN IF NOT EXISTS description text;
 ALTER TABLE sites ADD COLUMN IF NOT EXISTS logo_url text;
 ALTER TABLE sites ADD COLUMN IF NOT EXISTS slug text;
+-- Identité visuelle de la station : logo téléversé depuis Paramètres.
+--
+-- Le logo vit dans la base, pas sur un disque ni dans un compartiment objet.
+-- L'application n'a jamais eu de stockage de fichiers — c'est ce qui permet de
+-- la lancer en plusieurs exemplaires derrière un répartiteur et de sauvegarder
+-- l'ensemble avec pg_dump. Un logo de 300 Ko au plus, borné par un CHECK :
+-- la borne est dans la base, pas seulement dans la route qui l'écrit.
+--
+-- Une seule ligne par organisation (organization_id en clé primaire) :
+-- téléverser un nouveau logo remplace le précédent, il n'y a jamais d'orphelin
+-- à nettoyer.
+CREATE TABLE IF NOT EXISTS organization_branding (
+ organization_id uuid PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+ logo_mime_type text CHECK (logo_mime_type IN ('image/png','image/jpeg','image/webp')),
+ logo_byte_size integer,
+ logo_data bytea,
+ logo_updated_at timestamptz,
+ -- Le logo, son type et sa taille sont indissociables : un octet sans type ne
+ -- peut pas être servi avec un Content-Type honnête, un type sans octet ne
+ -- s'affiche pas, et une taille absente rendrait la limite invérifiable.
+ CHECK (
+  (logo_data IS NULL AND logo_mime_type IS NULL AND logo_byte_size IS NULL)
+  OR (logo_data IS NOT NULL AND logo_mime_type IS NOT NULL
+      AND logo_byte_size BETWEEN 1 AND 300000)
+ ),
+ updated_by uuid REFERENCES users(id) ON DELETE SET NULL,
+ updated_at timestamptz NOT NULL DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS onboarding_progress (
   organization_id uuid PRIMARY KEY REFERENCES organizations(id), current_stage text NOT NULL DEFAULT 'station',
   station_data jsonb, services_data jsonb, workers_data jsonb, plan_code text, draft boolean NOT NULL DEFAULT false,
@@ -1243,6 +1271,12 @@ CREATE POLICY org_isolation ON purchase_items
 ALTER TABLE idempotency_keys ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS org_isolation ON idempotency_keys;
 CREATE POLICY org_isolation ON idempotency_keys
+  USING (organization_id = NULLIF(current_setting('app.current_org', true), '')::uuid)
+  WITH CHECK (organization_id = NULLIF(current_setting('app.current_org', true), '')::uuid);
+
+ALTER TABLE organization_branding ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS org_isolation ON organization_branding;
+CREATE POLICY org_isolation ON organization_branding
   USING (organization_id = NULLIF(current_setting('app.current_org', true), '')::uuid)
   WITH CHECK (organization_id = NULLIF(current_setting('app.current_org', true), '')::uuid);
 

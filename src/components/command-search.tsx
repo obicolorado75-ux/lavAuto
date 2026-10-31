@@ -94,6 +94,7 @@ const ROUTE_PERMISSION: Record<string, Permission> = {
   "/vehicle-categories": "service:read",
   "/sites": "settings:manage",
   "/settings/access": "user:manage",
+  "/settings/branding": "settings:manage",
   "/settings/account": "dashboard:read",
   "/settings/billing": "subscription:manage",
   "/settings/data": "data:export",

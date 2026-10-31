@@ -70,6 +70,8 @@ const PURGE_ORDER: { table: string; where: string }[] = [
   { table: "workers", where: "organization_id = $1::uuid" },
   { table: "customers", where: "organization_id = $1::uuid" },
   { table: "sites", where: "organization_id = $1::uuid" },
+  // Identité visuelle : une image par organisation, sans dépendance.
+  { table: "organization_branding", where: "organization_id = $1::uuid" },
   { table: "onboarding_progress", where: "organization_id = $1::uuid" },
   { table: "idempotency_keys", where: "organization_id = $1::uuid" },
   { table: "member_permissions", where: "organization_id = $1::uuid" },

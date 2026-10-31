@@ -38,7 +38,7 @@ import {
   CSidebarToggler,
 } from "@coreui/react"
 
-import { BrandBadge, BrandMark } from "@/components/brand"
+import { BrandLogo } from "@/components/brand-logo"
 import { TrialCountdown } from "@/components/trial/trial-countdown"
 import type { CoreUiSidebarState } from "@/components/coreui/coreui-frame"
 import { previousVisit, routeLabel } from "@/config/navigation"
@@ -98,6 +98,11 @@ const NAV_GROUPS = [
         icon: Settings,
         items: [
           { title: "Compte", url: "/settings/account" },
+          {
+            title: "Identité visuelle",
+            url: "/settings/branding",
+            permission: "settings:manage" as Permission,
+          },
           { title: "Facturation", url: "/settings/billing", permission: "subscription:manage" as Permission },
           { title: "Données et sauvegarde", url: "/settings/data", permission: "data:export" as Permission },
         ],
@@ -185,13 +190,13 @@ export function AppSidebar({ visible, unfoldable, onVisibleChange, onToggleUnfol
       <CSidebarHeader className="border-bottom">
         <CSidebarBrand as={Link} to="/dashboard" viewTransition>
           <span className="sidebar-brand-full coreui-brand-full">
-            <BrandMark height={30} tone="dark" />
+            <BrandLogo height={30} tone="dark" />
             <span className="coreui-station-copy">
               <strong>{stationName}</strong>
               <small>{stationCity}</small>
             </span>
           </span>
-          <span className="sidebar-brand-narrow"><BrandBadge height={32} tone="dark" /></span>
+          <span className="sidebar-brand-narrow"><BrandLogo height={32} tone="dark" variant="badge" /></span>
         </CSidebarBrand>
         <CCloseButton className="d-lg-none" dark onClick={() => onVisibleChange(false)} aria-label="Fermer la navigation" />
       </CSidebarHeader>

@@ -6,6 +6,7 @@
  */
 import * as React from "react"
 import { API_BASE_URL, apiErrorMessage, authHeaders, storeSessionToken } from "@/lib/api"
+import { resetBranding } from "@/lib/branding-api"
 import { clearOfflineApiCache } from "@/lib/register-sw"
 import { setQueueOwner, startOfflineSync } from "@/lib/offline-sync"
 
@@ -178,6 +179,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // connexion (voir la règle 5 de offline-queue.ts).
       setQueueOwner("")
       clearOfflineApiCache()
+      // Le logo de la station vit dans un magasin partagé : sans cette remise à
+      // zéro, la station suivante héritait un instant du logo de la précédente.
+      resetBranding()
     }
   }, [])
 

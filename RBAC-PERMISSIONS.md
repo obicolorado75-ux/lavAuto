@@ -322,7 +322,14 @@ Ce que chaque rôle voit aujourd'hui :
 | Catalogue | `service:read` | ✓ | ✓ | ✓ | ✓ |
 | Stations | `settings:manage` | ✓ | — | — | — |
 | Gestion des accès | `user:manage` | ✓ | — | — | — |
+| Identité visuelle | `settings:manage` | ✓ | — | — | — |
 | Paramètres | libre | ✓ | ✓ | ✓ | ✓ |
+
+L'entrée « Identité visuelle » (le logo de la station) suit la même règle que
+« Stations » : `settings:manage` vaut propriétaire seul, et un écran dont le
+seul bouton serait grisé n'a rien à annoncer aux autres rôles. Chacun, en
+revanche, **voit** le logo de sa station dans la barre latérale : lire ce qui
+s'affiche partout n'est pas un privilège, le modifier en est un.
 
 `tests/navigation.test.ts` verrouille l'ensemble : toute page du disque est
 déclarée dans une route, toute entrée de menu pointe vers une route existante,
