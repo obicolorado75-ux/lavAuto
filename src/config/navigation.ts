@@ -13,6 +13,7 @@ import {
   LayoutPanelLeft,
   List,
   Package,
+  Palette,
   Receipt,
   Settings,
   ShieldCheck,
@@ -215,6 +216,13 @@ export const ROUTE_META: Record<string, RouteMeta> = {
     icon: CreditCard,
     parent: { label: "Paramètres", href: "/settings/account" },
     description: "Forfait, factures et moyens de paiement.",
+  },
+  "/settings/branding": {
+    label: "Identité visuelle",
+    section: "Configuration",
+    icon: Palette,
+    parent: { label: "Paramètres", href: "/settings/account" },
+    description: "Logo de la station et personnalisation de l'application.",
   },
   "/settings/data": {
     label: "Données et sauvegarde",

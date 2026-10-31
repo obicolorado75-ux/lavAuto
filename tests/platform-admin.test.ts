@@ -397,8 +397,10 @@ test("la liste du parc montre l'état effectif, pas le statut stocké", async ()
   assert.equal(organization.read_only, true)
 })
 
-test("une échéance dépassée est signalée, jamais coupée d'office", async () => {
-  await resetSubscription("active", "pro", -10)
+test("une échéance dépassée est signalée, et coupée seulement après la tolérance", async () => {
+  // Deux jours de retard : encore dans la tolérance. Le client écrit, et le
+  // back-office voit le compte à rebours qui lui reste.
+  await resetSubscription("active", "pro", -2)
 
   const metrics = await (await console_("/metrics")).json()
   assert.ok(metrics.past_due >= 1, "l'échéance dépassée remonte dans les indicateurs")
@@ -409,11 +411,143 @@ test("une échéance dépassée est signalée, jamais coupée d'office", async (
   const organization = data.organizations.find((o: { id: string }) => o.id === organizationId)
   assert.ok(organization, "la station apparaît dans le filtre « échéance dépassée »")
   assert.equal(organization.past_due, true)
-  assert.ok(organization.days_past_due >= 9)
+  assert.ok(organization.days_past_due >= 1)
+  assert.ok(organization.payment_grace_days_remaining >= 4, "la tolérance court encore")
+  assert.equal(organization.read_only, false)
 
-  // Mais le client écrit toujours : la décision de couper revient à un humain.
+  const state = await (await api("/api/v1/subscription", { as: "demo@washpilot.ci" })).json()
+  assert.equal(state.read_only, false, "dans la tolérance, l'écriture reste ouverte")
+  assert.equal(state.past_due, true)
+  assert.ok(state.payment_grace_ends_at, "l'écran client annonce la date de coupure")
+
+  // Dix jours de retard : la tolérance (7 jours) est écoulée. L'espace ferme
+  // en écriture — mais dit pourquoi, et ne parle pas d'essai.
+  await resetSubscription("active", "pro", -10)
+  const lapsed = await (await api("/api/v1/subscription", { as: "demo@washpilot.ci" })).json()
+  assert.equal(lapsed.read_only, true)
+  assert.equal(lapsed.expired_reason, "payment")
+  assert.equal(lapsed.past_due, true)
+  assert.equal(lapsed.trial_ends_at, null, "un impayé n'affiche pas de date d'essai")
+
+  const write = await api("/api/v1/sites", {
+    as: "demo@washpilot.ci",
+    method: "POST",
+    body: { name: "Station de trop", city: "Abidjan" },
+  })
+  assert.equal(write.status, 402)
+  assert.equal((await write.json()).error.code, "subscription_payment_due")
+
+  const after = await (
+    await console_("/organizations")
+  ).json()
+  const closed = after.organizations.find((o: { id: string }) => o.id === organizationId)
+  assert.equal(closed.status, "expired")
+  assert.equal(closed.expired_reason, "payment")
+})
+
+test("accorder un délai rouvre une station fermée, sans l'activer", async () => {
+  // La station est fermée depuis trois jours (dix de retard, sept de
+  // tolérance). Le client annonce un virement : on ne l'active pas — rien
+  // n'a été encaissé — et on ne le laisse pas fermé non plus.
+  await resetSubscription("active", "pro", -10)
+  await pool.query("DELETE FROM subscription_reminders WHERE organization_id = $1::uuid", [
+    organizationId,
+  ])
+  await pool.query(
+    "INSERT INTO subscription_reminders(organization_id, kind) VALUES($1::uuid,'renewal_read_only')",
+    [organizationId],
+  )
+
+  const closed = await (await api("/api/v1/subscription", { as: "demo@washpilot.ci" })).json()
+  assert.equal(closed.read_only, true)
+
+  const response = await console_(`/organizations/${organizationId}/extend-grace`, {
+    method: "POST",
+    body: { days: 15, reason: "Virement annoncé par le client" },
+  })
+  assert.equal(response.status, 200)
+  const result = await response.json()
+  assert.equal(result.read_only, false)
+
+  // Quinze jours à partir d'aujourd'hui, pas de l'échéance périmée : accorder
+  // un délai ne doit pas rendre les jours déjà consommés.
+  const days = Math.round(
+    (new Date(result.current_period_end).getTime() - Date.now()) / 86_400_000,
+  )
+  assert.ok(days >= 14 && days <= 15, `échéance dans ${days} jours`)
+
   const state = await (await api("/api/v1/subscription", { as: "demo@washpilot.ci" })).json()
   assert.equal(state.read_only, false)
+  assert.equal(state.past_due, false)
+  assert.equal(state.plan_code, "pro", "le forfait n'a pas changé : rien n'a été payé")
+
+  // L'écriture est rouverte : le refus vient du plafond de sites, plus de la
+  // lecture seule.
+  const write = await api("/api/v1/sites", {
+    as: "demo@washpilot.ci",
+    method: "POST",
+    body: { name: "Station d'après-délai", city: "Abidjan" },
+  })
+  assert.notEqual(write.status, 402)
+
+  // Une nouvelle échéance, donc un nouveau cycle de relances : l'ancien
+  // « fermé pour impayé » ne doit pas empêcher les rappels J-7/J-3/J-1.
+  const reminders = await pool.query(
+    "SELECT kind FROM subscription_reminders WHERE organization_id = $1::uuid",
+    [organizationId],
+  )
+  assert.deepEqual(reminders.rows, [], "les relances de la période précédente sont effacées")
+
+  // Et le geste est écrit chez le client, avec son motif.
+  const history = await (
+    await console_(`/organizations/${organizationId}`)
+  ).json()
+  const entry = history.subscription_history.find(
+    (row: { action: string }) => row.action === "subscription.grace_extended",
+  )
+  assert.ok(entry, "la prolongation apparaît dans l'historique du client")
+})
+
+test("un délai accordé ne fait jamais perdre du temps déjà payé", async () => {
+  await resetSubscription("active", "pro", 5)
+
+  const response = await console_(`/organizations/${organizationId}/extend-grace`, {
+    method: "POST",
+    body: { days: 15, reason: "Geste commercial, client fidèle" },
+  })
+  assert.equal(response.status, 200)
+  const result = await response.json()
+
+  // L'échéance part de celle qui court : 5 + 15 = 20 jours.
+  const days = Math.round(
+    (new Date(result.current_period_end).getTime() - Date.now()) / 86_400_000,
+  )
+  assert.ok(days >= 19 && days <= 20, `échéance dans ${days} jours`)
+})
+
+test("le délai refusé : bornes, essai, et station sans abonnement", async () => {
+  await resetSubscription("active", "pro", -2)
+
+  const tooLong = await console_(`/organizations/${organizationId}/extend-grace`, {
+    method: "POST",
+    body: { days: 90, reason: "Trop généreux" },
+  })
+  assert.equal(tooLong.status, 400)
+
+  const withoutReason = await console_(`/organizations/${organizationId}/extend-grace`, {
+    method: "POST",
+    body: { days: 15 },
+  })
+  assert.equal(withoutReason.status, 400)
+
+  // Un essai se prolonge avec `extend-trial` : la question n'est pas la même.
+  await resetSubscription("trialing", "starter", 3)
+  const trial = await console_(`/organizations/${organizationId}/extend-grace`, {
+    method: "POST",
+    body: { days: 15, reason: "Mauvais outil" },
+  })
+  assert.equal(trial.status, 409)
+  assert.equal((await trial.json()).error.code, "subscription_not_active")
 })
 
 test("le revenu mensuel ne compte que les forfaits réellement actifs", async () => {

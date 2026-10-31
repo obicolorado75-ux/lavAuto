@@ -44,13 +44,16 @@ import { registerClosureConsoleRoutes, acceptPendingClosure } from "./closure.ts
 //
 // Deux partis pris explicites :
 //
-//   1. **Aucune coupure automatique.** Un abonnement `active` reste actif même
-//      après `current_period_end` (voir `computeSubscriptionState` : seul
-//      `trialing` regarde l'échéance). Couper automatiquement un client dont
-//      le virement n'a pas encore été saisi serait plus grave que de laisser
-//      courir quelques jours. En contrepartie, `GET /admin/metrics` et le
-//      filtre `past_due` rendent les échéances dépassées impossibles à
-//      manquer : la décision revient à un humain, mais elle lui est présentée.
+//   1. **Aucune coupure sans tolérance.** Un abonnement `active` dont
+//      l'échéance est dépassée garde toutes ses écritures pendant
+//      `PAYMENT_GRACE_DAYS` (7 par défaut), puis passe en lecture seule. Couper
+//      le jour de l'échéance punirait un client dont le virement mobile money a
+//      été envoyé la veille ; laisser courir indéfiniment, c'était le forfait
+//      gratuit de fait. La tolérance est le délai réel du rail de paiement, pas
+//      un cadeau. `GET /admin/metrics` et le filtre `past_due` présentent
+//      l'échéance dépassée à un humain avant la coupure : il peut activer, ou
+//      assumer la fermeture en connaissance de cause. Aucune donnée n'est
+//      jamais supprimée pour un impayé.
 //
 //   2. **Toute action est journalisée chez le client**, pas dans un registre
 //      séparé (voir `auditPlatformAction`). Le propriétaire voit dans son
@@ -143,11 +146,9 @@ function describe(row: OrganizationRow, now: Date) {
     now,
   })
 
-  const periodEnd = row.current_period_end ? new Date(row.current_period_end) : null
-  // « Échéance dépassée » ne concerne que les forfaits payants actifs : un
-  // essai échu est déjà « expired », ce n'est pas un impayé.
-  const pastDue =
-    state.status === "active" && periodEnd !== null && periodEnd.getTime() <= now.getTime()
+  // « Échéance dépassée » vient de l'état partagé, pas d'un second calcul :
+  // l'écran du client et celui de l'opérateur doivent fermer au même instant.
+  const { past_due: pastDue } = state
 
   // Une station dormante n'est ni en panne ni perdue : elle n'a simplement
   // rien enregistré depuis longtemps. C'est le signal le plus précoce d'un
@@ -182,10 +183,13 @@ function describe(row: OrganizationRow, now: Date) {
     plan_changed_at: row.plan_changed_at,
     days_remaining: state.days_remaining,
     past_due: pastDue,
-    days_past_due:
-      pastDue && periodEnd
-        ? Math.floor((now.getTime() - periodEnd.getTime()) / 86_400_000)
-        : 0,
+    days_past_due: state.days_past_due,
+    // Combien de jours il reste avant la fermeture réelle : c'est le chiffre
+    // qui décide si l'opérateur appelle le client ou attend son virement.
+    payment_grace_days: state.payment_grace_days,
+    payment_grace_days_remaining: state.payment_grace_days_remaining,
+    payment_grace_ends_at: state.payment_grace_ends_at,
+    expired_reason: state.expired_reason,
   }
 }
 
@@ -683,6 +687,102 @@ export function createAdminRouter() {
     }),
   )
 
+
+  // -------------------------------------------------------------------------
+  // POST /api/v1/admin/organizations/:id/extend-grace — accorder un délai.
+  //
+  // Le pendant de `extend-trial` pour un forfait **payant** : la station est
+  // échue, on ne veut ni l'activer (rien n'a été payé) ni la laisser fermer
+  // (le virement arrive). Ce geste pousse l'échéance de quelques jours sans
+  // toucher au forfait ni au montant dû.
+  //
+  // Trois choix :
+  //
+  //   1. **On n'ampute jamais du temps déjà payé.** La nouvelle échéance part
+  //      du maximum entre maintenant et l'échéance courante : un client qui
+  //      appelle trois jours avant son terme reçoit bien ses quinze jours.
+  //   2. **Les relances repartent.** `renewal_read_only` a déjà été envoyée au
+  //      moment de la fermeture ; sans cet effacement, le client ne recevrait
+  //      plus rien et retomberait en lecture seule sans préavis.
+  //   3. **Le geste est écrit chez le client**, pas seulement dans la console :
+  //      son propriétaire doit pouvoir lire qu'on lui a accordé un délai, et
+  //      pourquoi.
+  // -------------------------------------------------------------------------
+  r.post(
+    "/organizations/:id/extend-grace",
+    asyncRoute(async (req, res) => {
+      const id = parseId(req.params.id)
+      const operator = req.operator!
+      const input = body(
+        z
+          .object({
+            days: z.number().int().min(1).max(60),
+            reason: z.string().trim().min(3).max(300),
+          })
+          .strip(),
+        req.body,
+      )
+
+      const pool = adminDb()
+      const currentQ = await pool.query(
+        "SELECT status, current_period_end FROM subscriptions WHERE organization_id = $1::uuid",
+        [id],
+      )
+      if (!currentQ.rowCount) {
+        throw new HttpError(404, "subscription_not_found", "Cette station n'a aucun abonnement.")
+      }
+      const row = currentQ.rows[0] as { status: string; current_period_end: string | null }
+
+      // Un essai se prolonge avec `extend-trial` : la question posée n'est pas
+      // la même (convaincre quelqu'un qui n'a rien acheté vs laisser respirer
+      // quelqu'un qui paie). Un abonnement suspendu se réactive, il ne se
+      // prolonge pas.
+      if (row.status !== "active") {
+        throw new HttpError(
+          409,
+          "subscription_not_active",
+          row.status === "trialing"
+            ? "Cette station est en essai : utilisez « Prolonger l'essai »."
+            : "Cette station n'a pas de forfait payant en cours. Activez un forfait plutôt que d'accorder un délai.",
+        )
+      }
+
+      const now = new Date()
+      const existing = row.current_period_end ? new Date(row.current_period_end) : null
+      const base = existing && existing.getTime() > now.getTime() ? existing : now
+      const periodEnd = new Date(base.getTime() + input.days * 86_400_000)
+
+      await pool.query(
+        `UPDATE subscriptions
+            SET current_period_end = $2::timestamptz, updated_at = now()
+          WHERE organization_id = $1::uuid`,
+        [id, periodEnd.toISOString()],
+      )
+
+      // Une nouvelle échéance, donc un nouveau cycle de relances.
+      await pool.query(
+        "DELETE FROM subscription_reminders WHERE organization_id = $1::uuid AND kind LIKE 'renewal_%'",
+        [id],
+      )
+
+      await auditPlatformAction(pool, id, operator.email, "subscription.grace_extended", id, {
+        days: input.days,
+        reason: input.reason,
+        period_end: periodEnd.toISOString(),
+        previous_period_end: row.current_period_end,
+        operator_email: operator.email,
+      })
+      invalidateSubscriptionCache(id)
+
+      res.json({
+        organization_id: id,
+        status: "active",
+        current_period_end: periodEnd.toISOString(),
+        days: input.days,
+        read_only: false,
+      })
+    }),
+  )
 
   // -------------------------------------------------------------------------
   // Suppression d'une station, en deux temps.

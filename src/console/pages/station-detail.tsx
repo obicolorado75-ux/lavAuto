@@ -148,7 +148,7 @@ export function ConsoleStationDetail() {
         <ConsoleWrite>
           <div className="grid gap-4 lg:grid-cols-2">
             <ActivateCard plans={plans} id={id} onRun={run} />
-            <TrialCard id={id} onRun={run} />
+            <TrialCard id={id} org={org} onRun={run} />
           </div>
         </ConsoleWrite>
       )}
@@ -252,13 +252,31 @@ function ActivateCard({
   )
 }
 
-function TrialCard({ id, onRun }: { id: string; onRun: (fn: () => Promise<string>) => void }) {
+function TrialCard({
+  id,
+  org,
+  onRun,
+}: {
+  id: string
+  org: ConsoleOrganization
+  onRun: (fn: () => Promise<string>) => void
+}) {
   const [days, setDays] = React.useState(7)
   const [reason, setReason] = React.useState("")
   const [suspendReason, setSuspendReason] = React.useState("")
+  // Quinze jours par défaut : deux semaines couvrent un virement mobile money
+  // égaré, sans transformer le geste en forfait gratuit.
+  const [graceDays, setGraceDays] = React.useState(15)
+  const [graceReason, setGraceReason] = React.useState("")
+
+  // L'état de l'impayé, tel que le client le voit. Sans cette phrase, accorder
+  // un délai à une station déjà fermée se fait à l'aveugle : on ne sait pas si
+  // l'on rouvre pour trois jours ou pour quinze.
+  const paidLapsed = org.past_due
+  const closed = org.read_only && org.expired_reason === "payment"
 
   return (
-    <Panel title="Gestes commerciaux" description="Prolonger un essai, ou suspendre un abonnement.">
+    <Panel title="Gestes commerciaux" description="Prolonger un essai, accorder un délai, ou suspendre un abonnement.">
       <div className="space-y-4">
         <div className="space-y-3">
           <div className="grid grid-cols-[100px_1fr] gap-3">
@@ -299,6 +317,58 @@ function TrialCard({ id, onRun }: { id: string; onRun: (fn: () => Promise<string
             }
           >
             Prolonger l'essai
+          </Button>
+        </div>
+
+        <div className="space-y-3 border-t border-white/10 pt-4">
+          <div className="space-y-1">
+            <Label className="text-slate-300">Délai de paiement</Label>
+            <p className="text-xs text-slate-500">
+              {closed
+                ? `Fermée en lecture seule depuis ${Math.max(0, org.days_past_due - org.payment_grace_days)} j. Accorder un délai rouvre immédiatement l'écriture.`
+                : paidLapsed
+                  ? `Échue depuis ${org.days_past_due} j — il reste ${org.payment_grace_days_remaining} j avant la lecture seule.`
+                  : "Pousse l'échéance sans activer de forfait : rien n'a été payé, mais le client ne doit pas fermer."}
+            </p>
+          </div>
+          <div className="grid grid-cols-[100px_1fr] gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-slate-300">Jours</Label>
+              <Input
+                type="number"
+                min={1}
+                max={60}
+                value={graceDays}
+                onChange={(e) => setGraceDays(Number(e.target.value))}
+                className="border-white/15 bg-slate-900 text-white"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-slate-300">Motif</Label>
+              <Input
+                value={graceReason}
+                onChange={(e) => setGraceReason(e.target.value)}
+                placeholder="Virement en cours, promesse de paiement"
+                className="border-white/15 bg-slate-900 text-white placeholder:text-slate-600"
+              />
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            className="w-full"
+            disabled={graceReason.trim().length < 3 || graceDays < 1 || graceDays > 60}
+            onClick={() =>
+              onRun(async () => {
+                await consoleRequest(`/organizations/${id}/extend-grace`, {
+                  method: "POST",
+                  body: JSON.stringify({ days: graceDays, reason: graceReason.trim() }),
+                })
+                return `Échéance repoussée de ${graceDays} jours : la station reste ouverte.`
+              })
+            }
+          >
+            Accorder {graceDays} jour{graceDays > 1 ? "s" : ""} de délai
           </Button>
         </div>
 

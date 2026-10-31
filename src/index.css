@@ -257,13 +257,19 @@ html {
    ========================================================================== */
 
 /* Apparition échelonnée des lignes de liste / tableau.
-   Usage : <TableRow className="row-in" style={{ "--row": index }} /> */
+   Usage : <TableRow className="row-in" style={{ "--row": index }} />
+
+   `backwards` et non `both` : une animation remplie (`both`) conserve son
+   dernier état une fois terminée, et `transform: none` l'emporterait alors sur
+   le `translate3d(0, -1px, 0)` du survol — les lignes ne se soulèveraient
+   jamais. Avec `backwards`, l'état de départ est appliqué pendant le délai,
+   puis l'animation rend la main au style normal. */
 @keyframes row-in {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: none; }
 }
 .row-in {
-  animation: row-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: row-in 280ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
   animation-delay: calc(var(--row, 0) * 28ms);
 }
 
@@ -505,6 +511,240 @@ html[data-theme-transition]::view-transition-new(root) {
   .layer-3d { transform: none !important; }
 }
 
+/* ==========================================================================
+   Élévation 3D — cartes, tableaux, graphiques
+
+   Une seule grammaire de mouvement pour les trois surfaces de l'application :
+
+     · la CARTE se soulève (perspective + échelle 1,012 + ombre portée) ;
+     · la LIGNE de tableau se décolle de 1 px, se teinte et gagne un liseré ;
+     · le GRAPHIQUE s'éclaire d'une ombre colorée, sans changer de taille —
+       on lit un graphique, on ne le manipule pas : le faire grandir ferait
+       bouger les repères sous le curseur au moment précis où on les vise.
+
+   Les durées viennent de `src/lib/motion.ts` (DURATION.hover = 120 ms pour
+   les gestes, 160 ms ici car une ombre qui apparaît trop vite « claque »).
+   Seuls `transform`, `opacity` et `filter` sont animés : le navigateur les
+   compose sur le GPU, ce qui tient les 60 images par seconde sur un Android
+   d'entrée de gamme — la cible réelle du produit, pas un portable de bureau.
+   ========================================================================== */
+:root {
+  /* Durées CSS, alignées sur DURATION de `src/lib/motion.ts`. */
+  --motion-hover: 160ms;
+  --motion-enter: 240ms;
+  --motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-ease-in: cubic-bezier(0.4, 0, 1, 1);
+
+  /* Amplitude du survol d'une carte. 1,2 % : perceptible, jamais cliquant.
+     Au-delà, deux cartes voisines se chevauchent et la grille « tremble ». */
+  --hover-lift: -4px;
+  --hover-scale: 1.012;
+
+  /* Relief 3D : léger, parce qu'une carte de caisse n'est pas un jouet. */
+  --tilt-3d: 900px;
+}
+
+/* --------------------------------------------------------------------------
+   Carte 3D — la surface interactive de référence.
+
+   Le relief est porté par un pseudo-élément dont on n'anime QUE l'opacité :
+   `box-shadow` n'est pas compositée par le GPU, l'animer ferait recalculer un
+   flou à chaque image (voir `.surface-3d`, même technique).
+   -------------------------------------------------------------------------- */
+.card-3d {
+  position: relative;
+  transform: perspective(var(--tilt-3d)) translate3d(0, 0, 0) scale(1);
+  transform-origin: 50% 85%;
+  transition: transform var(--motion-hover) var(--motion-ease),
+    border-color var(--motion-hover) ease,
+    background-color var(--motion-hover) ease;
+}
+
+.card-3d::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: var(--edge-light), var(--edge-shade), var(--edge-ring-strong), var(--elev-3);
+  opacity: 0;
+  transition: opacity var(--motion-hover) var(--motion-ease);
+}
+
+/* Liseré lumineux qui suit le bord supérieur : c'est lui qui « allume » la
+   carte au survol, avant même que l'ombre ne se voie. */
+.card-3d::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: 1;
+  height: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklch, var(--color-primary) 55%, transparent),
+    transparent
+  );
+  opacity: 0;
+  transition: opacity var(--motion-hover) var(--motion-ease);
+}
+
+.card-3d:hover,
+.card-3d:focus-within {
+  /* 0,6° d'inclinaison : la carte se redresse vers l'utilisateur. Sans cette
+     rotation, l'effet reste une simple mise à l'échelle ; avec elle, la
+     perspective de 900 px fait lire un objet posé, pas une image agrandie. */
+  transform: perspective(var(--tilt-3d))
+    translate3d(0, var(--hover-lift), 0) rotateX(-0.6deg) scale(var(--hover-scale));
+}
+
+.card-3d:hover::after,
+.card-3d:focus-within::after { opacity: 1; }
+.card-3d:hover::before,
+.card-3d:focus-within::before { opacity: 0.9; }
+
+/* Pression : la carte retombe, l'action est acquittée. */
+.card-3d:active {
+  transform: perspective(var(--tilt-3d)) translate3d(0, 0, 0) scale(0.996);
+}
+
+/* Le contenu passe au-dessus des deux pseudo-éléments. */
+.card-3d > * { position: relative; z-index: 2; }
+
+/* Variante compacte : grilles denses (indicateurs, répartition). Le
+   décollement est divisé par deux, sinon les cartes se recouvrent. */
+.card-3d.card-3d-tight {
+  --hover-lift: -2px;
+  --hover-scale: 1.006;
+}
+
+/* --------------------------------------------------------------------------
+   Tableau 3D — le conteneur porte l'élévation, la ligne porte le survol.
+
+   Animer `box-shadow` sur chaque `tr` d'une liste de cent lignes coûte cher ;
+   le survol ne concerne qu'une ligne à la fois, mais on reste sur le couple
+   transform + couleurs, qui est composité.
+   -------------------------------------------------------------------------- */
+.table-3d {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--card);
+  box-shadow: var(--edge-light), var(--edge-shade), var(--edge-ring), var(--elev-2);
+  transition: box-shadow var(--motion-hover) var(--motion-ease);
+}
+
+/* Le survol du tableau entier ne fait que rapprocher l'ombre : le conteneur
+   reste immobile, sinon le curseur « nage » en le traversant. */
+.table-3d:hover {
+  box-shadow: var(--edge-light), var(--edge-shade), var(--edge-ring-strong), var(--elev-3);
+}
+
+/* En-tête légèrement en relief : il se détache du corps sans ombre lourde. */
+.table-3d thead th {
+  background: color-mix(in oklch, var(--muted) 65%, var(--card));
+  border-bottom: 1px solid var(--border);
+}
+
+/* Le survol vaut pour TOUTES les lignes, y compris dans un tableau posé
+   dans une carte : le décollement d'un pixel est le même signal partout, et
+   c'est le conteneur `.table-3d` qui ajoute l'ombre portée. */
+[data-slot="table-row"] {
+  transition: transform var(--motion-hover) var(--motion-ease),
+    background-color var(--motion-hover) ease;
+}
+
+[data-slot="table-row"]:hover {
+  transform: translate3d(0, -1px, 0);
+}
+
+/* Liseré d'accent sur la première cellule : le regard sait où la ligne
+   commence, même quand elle est large. */
+[data-slot="table-cell"] {
+  transition: box-shadow var(--motion-hover) ease;
+}
+
+[data-slot="table-row"]:hover [data-slot="table-cell"]:first-child {
+  box-shadow: inset 3px 0 0 0 color-mix(in oklch, var(--color-primary) 70%, transparent);
+}
+
+/* --------------------------------------------------------------------------
+   Apparition échelonnée des lignes.
+
+   CSS pur, sans framer-motion : une liste de 100 lignes qui monte en cascade
+   via 100 composants motion coûterait des dizaines de millisecondes de rendu.
+   Les douze premières lignes sont décalées (16 ms), les suivantes arrivent
+   ensemble — au-delà, la dernière attendrait plus d'une seconde.
+   -------------------------------------------------------------------------- */
+/* `backwards` : voir `.row-in` — le survol doit reprendre la main après la
+   cascade, sinon `transform: none` gèlerait la ligne. */
+.table-anim tbody tr {
+  animation: row-in var(--motion-enter) var(--motion-ease) backwards;
+}
+
+.table-anim tbody tr:nth-child(1)  { animation-delay: 0ms; }
+.table-anim tbody tr:nth-child(2)  { animation-delay: 16ms; }
+.table-anim tbody tr:nth-child(3)  { animation-delay: 32ms; }
+.table-anim tbody tr:nth-child(4)  { animation-delay: 48ms; }
+.table-anim tbody tr:nth-child(5)  { animation-delay: 64ms; }
+.table-anim tbody tr:nth-child(6)  { animation-delay: 80ms; }
+.table-anim tbody tr:nth-child(7)  { animation-delay: 96ms; }
+.table-anim tbody tr:nth-child(8)  { animation-delay: 112ms; }
+.table-anim tbody tr:nth-child(9)  { animation-delay: 128ms; }
+.table-anim tbody tr:nth-child(10) { animation-delay: 144ms; }
+.table-anim tbody tr:nth-child(11) { animation-delay: 160ms; }
+.table-anim tbody tr:nth-child(12) { animation-delay: 176ms; }
+
+/* --------------------------------------------------------------------------
+   Graphique 3D — l'ombre colorée remplace l'agrandissement.
+
+   Le SVG entier reçoit un `drop-shadow` teinté par la couleur d'action : la
+   courbe paraît décoller du fond. `filter` reste composité, et il n'y a qu'un
+   graphique survolé à la fois. La taille, elle, ne bouge pas : les axes et la
+   légende servent de repères pendant la lecture des valeurs.
+   -------------------------------------------------------------------------- */
+.chart-3d {
+  position: relative;
+  border-radius: var(--radius);
+  transition: transform var(--motion-hover) var(--motion-ease);
+}
+
+.chart-3d .recharts-surface {
+  transition: filter var(--motion-hover) var(--motion-ease),
+    opacity var(--motion-hover) ease;
+}
+
+.chart-3d:hover .recharts-surface {
+  filter: drop-shadow(0 8px 16px color-mix(in oklch, var(--color-primary) 24%, transparent));
+}
+
+/* Barres et secteurs s'éclaircissent légèrement au survol du graphique. */
+.chart-3d .recharts-bar-rectangle path,
+.chart-3d .recharts-sector,
+.chart-3d .recharts-area-area {
+  transition: opacity var(--motion-hover) ease;
+}
+
+.chart-3d:hover .recharts-bar-rectangle path,
+.chart-3d:hover .recharts-area-area { opacity: 0.92; }
+
+/* Entrée du graphique : 8 px et un fondu. Le tracé de Recharts anime déjà les
+   séries ; cette animation ne fait que poser le cadre, sans doubler le travail. */
+@keyframes chart-reveal {
+  from { opacity: 0; transform: translate3d(0, 8px, 0) scale(0.995); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+.chart-reveal {
+  /* `backwards` encore : un `transform` de remplissage créerait un contexte
+     d'empilement permanent sur le graphique, et l'ombre de survol s'y
+     peindrait sous le contenu au lieu de passer dessous. */
+  animation: chart-reveal var(--motion-enter) var(--motion-ease) backwards;
+}
+
 /* --------------------------------------------------------------------------
    Micro-interactions globales : feedback tactile cohérent sur les surfaces.
    Les états restent basés sur transform/opacity pour préserver la fluidité.
@@ -633,6 +873,12 @@ html[data-theme-transition]::view-transition-new(root) {
   .surface-3d:hover,
   .surface-3d:active,
   .surface-press:active { transform: none; }
+  .card-3d,
+  .card-3d:hover,
+  .card-3d:focus-within,
+  .card-3d:active { transform: none; }
+  .table-3d tbody tr:hover { transform: none; }
+  .chart-3d:hover .recharts-surface { filter: none; }
   .glow-breathe::after { animation: none; opacity: 1; }
   .layer-3d { transform: none !important; }
 

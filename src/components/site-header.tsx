@@ -15,6 +15,7 @@ import {
 import CIcon from "@coreui/icons-react"
 import { cilMenu } from "@coreui/icons"
 
+import { BrandLogo } from "@/components/brand-logo"
 import { useSearch } from "@/components/command-search"
 import { NewWashButton } from "@/components/actions/new-wash-button"
 import { NotificationCenter, SyncStatus } from "@/components/notifications/notification-center"
@@ -52,6 +53,15 @@ export function SiteHeader({
         >
           <CIcon icon={cilMenu} size="lg" />
         </CHeaderToggler>
+        {/* Sur téléphone, la barre latérale est fermée : c'est ici que le logo
+            de la station reste visible. Sur grand écran il fait doublon avec
+            celui de la barre latérale, d'où le `d-lg-none`. */}
+        <span className="d-lg-none d-flex align-items-center me-2">
+          {/* `tone` par défaut (`auto`) : l'en-tête est clair en thème clair et
+              sombre en thème sombre — contrairement à la barre latérale, qui
+              reste bleu nuit dans les deux cas. */}
+          <BrandLogo height={24} />
+        </span>
         <CSearchButton
           onTrigger={openSearch}
           aria-label="Rechercher"

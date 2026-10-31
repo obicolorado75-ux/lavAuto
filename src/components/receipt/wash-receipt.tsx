@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
 import { apiFetch, apiErrorMessage } from "@/lib/api"
+import { useBranding } from "@/lib/branding-api"
 
 /**
  * Le reçu de lavage, format 80 mm.
@@ -106,6 +107,31 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
 }
 
 /**
+ * Le logo de la station, en tête du papier.
+ *
+ * Il vient du magasin partagé (`useBranding`) : la même image que la barre
+ * latérale, déjà en mémoire, donc rien à télécharger au moment d'imprimer et
+ * aucun décalage à l'ouverture de la boîte de dialogue. Sans logo, rien ne
+ * s'affiche — le nom de la station juste en dessous suffit.
+ *
+ * L'image est volontairement bridée en largeur (60 mm) et en hauteur (14 mm) :
+ * un logo carré ou très allongé ne doit pas repousser le contenu du reçu, qui
+ * tient sur 80 mm de papier.
+ */
+function ReceiptLogo() {
+  const { image_url } = useBranding()
+  if (!image_url) return null
+  return (
+    <img
+      src={image_url}
+      alt=""
+      aria-hidden
+      className="mx-auto mb-1 block max-h-[14mm] w-auto max-w-[60mm] object-contain"
+    />
+  )
+}
+
+/**
  * Le papier lui-même.
  *
  * `id="recu-impression"` est l'ancrage de la feuille de style d'impression
@@ -119,6 +145,7 @@ export function ReceiptPaper({ receipt }: { receipt: WashReceipt }) {
       className="mx-auto w-[72mm] bg-white p-2 font-mono text-[11px] leading-tight text-black"
     >
       <div className="text-center">
+        <ReceiptLogo />
         <p className="text-[13px] font-bold uppercase">{receipt.station.name}</p>
         <p>{receipt.station.site}</p>
         {receipt.station.address && <p>{receipt.station.address}</p>}

@@ -198,8 +198,13 @@ station — introuvable, pas interdit), `409 wash_cancelled`,
 - **Pas de TVA.** Le produit ne modélise aucune taxe : les prix sont des
   montants uniques. Afficher un taux supposerait de connaître le régime fiscal
   de la station, que WashPilot ne lui demande pas.
-- **Pas de logo imprimé.** Une thermique rend mal les aplats, et le nom de la
-  station en gras est plus lisible qu'un dessin baveux.
+- **Le logo n'est pas obligatoire.** S'il est téléversé dans
+  Paramètres › Identité visuelle, il s'imprime en tête du papier (14 mm de
+  haut, 60 mm de large au plus), au-dessus du nom de la station. Sans logo,
+  rien ne s'affiche : le nom en gras suffit. Une thermique rend les aplats
+  approximativement — un logo à traits fins, à dominante claire, sort mieux
+  qu'une photo. Le texte brut de secours (48 colonnes) ne peut pas porter
+  d'image : c'est le seul endroit où le logo n'apparaît pas.
 - **Pas d'envoi au client.** Ni SMS, ni WhatsApp, ni e-mail. Le reçu est un
   papier qu'on tend. Un envoi supposerait de collecter le numéro du client à
   chaque lavage, ce que le comptoir n'a pas le temps de faire.

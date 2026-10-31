@@ -152,21 +152,36 @@
 .coreui-page > .px-4 { padding-inline: 0; }
 .coreui-page > .p-4 { padding: 0; }
 
-/* Le template est volontairement plat : les anciennes élévations 3D sont neutralisées. */
-.coreui-app :is(.elev-1, .elev-2, .elev-3, .elev-4, .surface-3d, .edge-3d) {
+/* Le template CoreUI aplatissait tout : les élévations héritées étaient
+   neutralisées à coups de `!important`. C'est fini — la hiérarchie des
+   surfaces se lit maintenant au relief.
+
+   Trois familles cohabitent, posées par les composants eux-mêmes :
+
+     · `.card-3d`  — carte interactive : décollement de 4 px, échelle 1,012,
+                     ombre révélée au survol et liseré lumineux ;
+     · `.table-3d` — conteneur de tableau : ombre portée qui se resserre au
+                     survol, lignes qui se soulèvent d'un pixel ;
+     · `.elev-1..4` — hauteur statique, choisie explicitement par un écran.
+
+   Seul `edge-3d` reste neutralisé : ce relief de bordure doublait le liseré
+   déjà peint par CoreUI sur ses cartes et ses champs. */
+.coreui-app .edge-3d {
   box-shadow: none !important;
-  transform: none !important;
 }
-.coreui-app :is(.elev-1, .elev-2, .elev-3, .elev-4, .surface-3d, .edge-3d)::before,
-.coreui-app :is(.elev-1, .elev-2, .elev-3, .elev-4, .surface-3d, .edge-3d)::after { display: none !important; }
-.coreui-app .interactive-scale:hover,
-.coreui-app .surface-3d:hover { transform: none !important; }
 .coreui-app [data-slot="card"] {
   border: 1px solid var(--cui-border-color);
   border-radius: var(--cui-border-radius);
+}
+/* Une carte sans relief demandé reste plate : c'est le défaut de CoreUI, et
+   une grille de six cartes toutes surélevées ne hiérarchiserait plus rien. */
+.coreui-app [data-slot="card"]:not(.card-3d):not(.elev-1):not(.elev-2):not(.elev-3):not(.elev-4) {
   box-shadow: none;
 }
-.coreui-app [data-slot="card"]:hover { border-color: var(--cui-border-color); }
+.coreui-app .card-3d:hover,
+.coreui-app .card-3d:focus-within {
+  border-color: color-mix(in oklch, var(--color-primary) 28%, var(--cui-border-color));
+}
 .coreui-app [data-slot="card-footer"] { background: var(--cui-tertiary-bg); border-color: var(--cui-border-color); }
 .coreui-app .rounded-2xl,
 .coreui-app .rounded-xl { border-radius: var(--cui-border-radius) !important; }
@@ -194,7 +209,11 @@
 
 .coreui-app [data-slot="table"] { border-color: var(--cui-border-color); color: var(--cui-body-color); }
 .coreui-app [data-slot="table-row"] { border-color: var(--cui-border-color); }
-.coreui-app [data-slot="table-row"]:hover { background: var(--cui-tertiary-bg); }
+.coreui-app [data-slot="table-row"]:hover {
+  /* Teinte d'action plutôt que gris neutre : la ligne survolée se rattache
+     visuellement à la couleur de l'application. */
+  background: color-mix(in oklch, var(--color-primary) 7%, var(--cui-tertiary-bg));
+}
 .coreui-app [data-slot="table-head"] { color: var(--cui-secondary-color); font-size: 0.78rem; font-weight: 600; }
 .coreui-app [data-slot="table-cell"],
 .coreui-app [data-slot="table-head"] { padding: 0.65rem 0.75rem; }

@@ -129,9 +129,55 @@ Le client clique, paie en 30 secondes, la période se prolonge
 ```
 
 C'est fait : `server/reminders.ts` relance désormais aussi les forfaits
-payants, à **J-7, J-3, J-1 et une fois l'échéance dépassée**. Le ton diffère
-de celui des relances d'essai — on ne cherche pas à convaincre un client qui
-paie déjà, on lui évite une interruption.
+payants, à **J-7, J-3, J-1, une fois l'échéance dépassée, et le jour où la
+tolérance s'achève** (`renewal_read_only` : l'espace vient de passer en lecture
+seule). Le ton diffère de celui des relances d'essai — on ne cherche pas à
+convaincre un client qui paie déjà, on lui évite une interruption.
+
+### Ce qui se passe si le client ne paie pas
+
+Le rappel ne suffit pas toujours : il faut une conséquence, sinon l'abonnement
+n'est qu'une suggestion. Elle est ici bornée et annoncée :
+
+```
+échéance ──(7 jours de tolérance)──▶ lecture seule
+   ↑                                      │
+   └──── activateSubscription() ◀──────────┘  (retour immédiat, sans rattrapage)
+```
+
+- `PLAN_GRACE_DAYS` (7 par défaut, 1 à 30, `server/env.ts`) est le délai réel
+  d'un virement mobile money, pas un cadeau. Pendant ce temps la station
+  travaille normalement ; l'écran Forfait affiche la date de fermeture.
+- Passé ce délai, l'écriture se ferme (`402 subscription_payment_due`). La
+  lecture, l'export et l'onboarding restent ouverts : **on ne prend jamais les
+  données en otage**, et un client qui revient trois mois plus tard retrouve
+  son historique intact.
+- Le back-office ne décide plus de fermer : il voit
+  `payment_grace_days_remaining` et peut encaisser avant l'échéance. La
+  coupure est mécanique, la reprise est humaine et immédiate.
+
+**Ce qu'on écrit, et une seule fois.** Une fermeture est un fait, pas un fil
+de discussion : le client reçoit `renewal_read_only` au moment où l'écriture
+se ferme, puis plus rien. Toute reprise passe par une action humaine —
+activation ou délai accordé — qui efface les relances et rouvre le cycle.
+Un client parti qui continue de recevoir des courriels est le plus court
+chemin vers le signalement en spam.
+
+**Accorder un délai, sans activer.** `POST /console/organizations/:id/extend-grace`
+(« Accorder 15 jours de délai » dans la fiche station) pousse l'échéance
+sans rien encaisser ni changer de forfait. Trois règles :
+
+1. la nouvelle échéance part de **la plus tardive** entre maintenant et
+   l'échéance courante — un délai accordé trois jours avant le terme ajoute
+   bien quinze jours, il n'en retire pas douze ;
+2. les relances `renewal_%` sont effacées : sans cela, le client retomberait
+   en lecture seule sans aucun avertissement, l'ayant déjà reçu ;
+3. le geste est journalisé chez le client (`subscription.grace_extended`,
+   avec le motif) — il doit pouvoir lire qu'on lui a accordé un délai.
+
+Un essai ne se prolonge pas par ce chemin (`extend-trial` existe pour cela),
+et une station sans forfait payant non plus : on active, on n'accorde pas un
+délai sur un abonnement qui n'existe pas.
 
 Un détail qui aurait pu passer inaperçu : les relances d'essai ne partent
 qu'une fois dans la vie d'une station, mais celles de renouvellement doivent

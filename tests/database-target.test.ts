@@ -12,6 +12,7 @@ import {
   buildSslConfig,
   chooseDatabaseTarget,
   describeConnection,
+  isUnfilledRemoteDatabaseUrl,
 } from "../server/database-target.ts"
 
 test("en développement, DATABASE_URL renseignée ouvre la base externe", () => {
@@ -131,4 +132,22 @@ test("TLS : l'autorité fournie est transmise telle quelle", () => {
   assert.deepEqual(buildSslConfig("postgresql://u:p@db.exemple.com/w", "   "), {
     rejectUnauthorized: true,
   })
+})
+
+test("un gabarit de mot de passe n'est refusé que sur une connexion distante", () => {
+  // Supabase tel qu'on le copie avant d'avoir remplacé le mot de passe.
+  assert.equal(
+    isUnfilledRemoteDatabaseUrl("postgresql://postgres:[YOUR-PASSWORD]@db.venjuyjcyqjntudolgqu.supabase.co:5432/postgres"),
+    true,
+  )
+  assert.equal(
+    isUnfilledRemoteDatabaseUrl("postgresql://postgres.venjuyjcyqjntudolgqu:%3CMOT_DE_PASSE%3E@aws-0-eu-west-3.pooler.supabase.com:5432/postgres"),
+    true,
+  )
+  // Un PostgreSQL local en `trust` n'a pas de mot de passe : c'est légitime,
+  // et le refuser fermerait le développement sur base locale.
+  assert.equal(isUnfilledRemoteDatabaseUrl("postgresql://postgres@127.0.0.1:5432/postgres"), false)
+  assert.equal(isUnfilledRemoteDatabaseUrl("postgresql://postgres@localhost/washpilot"), false)
+  // Rien à refuser quand aucune base externe n'est visée.
+  assert.equal(isUnfilledRemoteDatabaseUrl(""), false)
 })

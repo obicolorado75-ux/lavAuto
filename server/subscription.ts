@@ -61,6 +61,10 @@ export function createSubscriptionRouter() {
               // Recule la date du changement de forfait, pour observer la fin
               // du délai de grâce sans attendre 14 jours.
               plan_changed_days_ago: z.number().min(0).max(400).optional(),
+              // Simule un **forfait payant** échu plutôt qu'un essai : c'est
+              // le seul moyen de voir la tolérance de paiement et le bandeau
+              // d'impayé sans attendre trente jours.
+              paid: z.boolean().optional(),
             })
             .strip(),
           req.body,
@@ -73,7 +77,11 @@ export function createSubscriptionRouter() {
         ])
         if (!planQ.rowCount) throw new HttpError(404, "plan_not_found", "Forfait introuvable.")
 
-        const expired = payload.days_left <= 0
+        // Un essai échu s'écrit `expired` ; un forfait payant échu s'écrit
+        // `active` avec une échéance passée — c'est l'état réel en base, et
+        // c'est `computeSubscriptionState` qui décide de la tolérance.
+        const expired = payload.days_left <= 0 && !payload.paid
+        const nextStatus = payload.paid ? "active" : expired ? "expired" : "trialing"
         await pool.query(
           `INSERT INTO subscriptions(organization_id, plan_id, status, current_period_end, plan_changed_at)
            VALUES($1::uuid, $2, $3, now() + ($4 || ' days')::interval, now())
@@ -82,7 +90,7 @@ export function createSubscriptionRouter() {
                  current_period_end=EXCLUDED.current_period_end,
                  plan_changed_at=CASE WHEN subscriptions.plan_id <> EXCLUDED.plan_id THEN now() ELSE subscriptions.plan_changed_at END,
                  updated_at=now()`,
-          [t.organizationId, planQ.rows[0].id, expired ? "expired" : "trialing", String(payload.days_left)],
+          [t.organizationId, planQ.rows[0].id, nextStatus, String(payload.days_left)],
         )
         if (payload.plan_changed_days_ago !== undefined) {
           await pool.query(

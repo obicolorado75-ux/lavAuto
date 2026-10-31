@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { resolvePgliteLocation, describePgliteLocation } from "./pglite-location.ts";
-import { buildSslConfig, chooseDatabaseTarget, describeConnection, hasUnfilledDatabaseUrl } from "./database-target.ts";
+import { buildSslConfig, chooseDatabaseTarget, describeConnection, isUnfilledRemoteDatabaseUrl } from "./database-target.ts";
 import { bindRlsGuard, isRlsRoleAvailable, probeRlsRole, type RlsPool } from "./db-rls.ts";
 import { env } from "./env.ts";
 import { migrateLegacyPlatformAdmins, syncPlatformOperators } from "./console-auth.ts";
@@ -159,6 +159,7 @@ const RLS_DIRECT_TABLES = [
   "purchases",
   "purchase_items",
   "idempotency_keys",
+  "organization_branding",
   "member_permissions",
   "subscription_reminders",
   "payment_intents",
@@ -333,6 +334,39 @@ ALTER TABLE sites ADD COLUMN IF NOT EXISTS email text;
 ALTER TABLE sites ADD COLUMN IF NOT EXISTS description text;
 ALTER TABLE sites ADD COLUMN IF NOT EXISTS logo_url text;
 ALTER TABLE sites ADD COLUMN IF NOT EXISTS slug text;
+-- Identité visuelle de la station : logo téléversé depuis Paramètres.
+--
+-- Le logo vit dans la base, pas sur un disque ni dans un compartiment objet.
+-- L'application n'a jamais eu de stockage de fichiers — c'est ce qui permet de
+-- la lancer en plusieurs exemplaires derrière un répartiteur et de sauvegarder
+-- l'ensemble avec pg_dump. Un logo de 300 Ko au plus, borné par un CHECK :
+-- la borne est dans la base, pas seulement dans la route qui l'écrit.
+--
+-- Une seule ligne par organisation (organization_id en clé primaire) :
+-- téléverser un nouveau logo remplace le précédent, il n'y a jamais d'orphelin
+-- à nettoyer.
+CREATE TABLE IF NOT EXISTS organization_branding (
+ organization_id uuid PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+ logo_mime_type text CHECK (logo_mime_type IN ('image/png','image/jpeg','image/webp')),
+ logo_byte_size integer,
+ logo_data bytea,
+ logo_updated_at timestamptz,
+ -- Couleur d'action choisie par la station (un des thèmes de src/lib/palette.ts).
+ -- NULL : l'application garde le bleu WashPilot.
+ brand_color text CHECK (brand_color IS NULL OR brand_color IN ('bleu','indigo','violet','teal','emeraude','ambre','rose','ardoise')),
+ -- Le logo, son type et sa taille sont indissociables : un octet sans type ne
+ -- peut pas être servi avec un Content-Type honnête, un type sans octet ne
+ -- s'affiche pas, et une taille absente rendrait la limite invérifiable.
+ CHECK (
+  (logo_data IS NULL AND logo_mime_type IS NULL AND logo_byte_size IS NULL)
+  OR (logo_data IS NOT NULL AND logo_mime_type IS NOT NULL
+      AND logo_byte_size BETWEEN 1 AND 300000)
+ ),
+ updated_by uuid REFERENCES users(id) ON DELETE SET NULL,
+ updated_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE organization_branding ADD COLUMN IF NOT EXISTS brand_color text
+ CHECK (brand_color IS NULL OR brand_color IN ('bleu','indigo','violet','teal','emeraude','ambre','rose','ardoise'));
 CREATE TABLE IF NOT EXISTS onboarding_progress (
   organization_id uuid PRIMARY KEY REFERENCES organizations(id), current_stage text NOT NULL DEFAULT 'station',
   station_data jsonb, services_data jsonb, workers_data jsonb, plan_code text, draft boolean NOT NULL DEFAULT false,
@@ -1743,6 +1777,20 @@ export function readCaCertificate(raw: string): string | null {
 }
 
 export async function initDatabaseSchema(): Promise<boolean> {
+  // Filet de sécurité : `node --test` lancé à la main n'est pas `npm test`.
+  // Sans le script de la suite, `NODE_ENV` reste à « development » et la base
+  // ouverte est celle du développeur, sur disque : les tests écriraient dans
+  // ses vraies données — abonnements activés, intentions de paiement, comptes
+  // créés. C'est arrivé une fois ; ce garde-fou existe pour que cela n'arrive
+  // plus.
+  if (process.env.NODE_TEST_CONTEXT && env.NODE_ENV !== "test") {
+    throw new Error(
+      "Les tests tournent sous `node --test` sans NODE_ENV=test : ils ouvriraient la base de " +
+        "développement sur disque et la modifieraient. Lancez `npm test` (ou " +
+        "`npm test -- tests/fichier.test.ts`).",
+    )
+  }
+
   // La base à ouvrir est décidée par une fonction pure, testée à part. En mode
   // test, elle ignore `DATABASE_URL` : une suite qui écrirait dans la base de
   // production (ou dans celle du développeur) serait pire qu'une suite rouge.
@@ -1767,7 +1815,15 @@ export async function initDatabaseSchema(): Promise<boolean> {
     // Une URL encore gabarit (`<MOT_DE_PASSE>`) échouerait à se connecter, puis
     // tomberait dans le repli PGlite en laissant croire à un démarrage réussi —
     // avec une base vide. On refuse explicitement, plutôt que de le faire.
-    if (hasUnfilledDatabaseUrl(env.DATABASE_URL)) {
+    // Pooler en mode transaction : l'état de session (SET ROLE,
+    // app.current_org) n'y survit pas. On ne refuse pas le démarrage — un
+    // correctif peut être en cours — mais l'opérateur doit le savoir.
+    const connectionProfile = describeConnection(env.DATABASE_URL);
+    // Le gabarit se reconnaît à son mot de passe absent. Un PostgreSQL local
+    // en `trust` n'en a pas non plus : refuser ici empêcherait tout
+    // développement sur une base locale sans mot de passe. Le contrôle ne
+    // vaut donc que pour une connexion distante, celle où le gabarit trompe.
+    if (isUnfilledRemoteDatabaseUrl(env.DATABASE_URL)) {
       throw new Error(
         "DATABASE_URL contient encore un gabarit de mot de passe (<MOT_DE_PASSE> / [YOUR-PASSWORD]). " +
           "Renseignez le mot de passe du pooler Supabase (Settings → Database → Reset database password) " +
@@ -1775,10 +1831,6 @@ export async function initDatabaseSchema(): Promise<boolean> {
       );
     }
     try {
-      // Pooler en mode transaction : l'état de session (SET ROLE,
-      // app.current_org) n'y survit pas. On ne refuse pas le démarrage — un
-      // correctif peut être en cours — mais l'opérateur doit le savoir.
-      const connectionProfile = describeConnection(env.DATABASE_URL);
       if (connectionProfile.warning) console.warn(`[db] ${connectionProfile.warning}`);
       const externalPool = new Pool({
         connectionString: env.DATABASE_URL,

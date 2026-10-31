@@ -164,7 +164,7 @@ function SummaryCard({
   return (
     <CWidgetStatsA
       color={color}
-      className="mb-4"
+      className="card-3d card-3d-tight mb-4"
       aria-busy={loading || undefined}
       value={loading
         ? <Skeleton className="h-7 w-32 bg-white/25" />
@@ -457,7 +457,7 @@ export default function DashboardPage() {
 
         {/* Activity panels */}
         <section className="grid gap-4 xl:grid-cols-3">
-          <Surface elevation={1} className="p-5 xl:col-span-2">
+          <Surface interactive className="p-5 xl:col-span-2">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="font-semibold">Évolution des recettes</h2>
@@ -499,7 +499,7 @@ export default function DashboardPage() {
             {reportLoading ? (
               <Skeleton className="mt-6 h-52 w-full rounded-xl" />
             ) : hasRevenueData ? (
-              <div className="mt-6 h-64 w-full">
+              <div className="chart-3d chart-reveal mt-6 h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={revenueSeries} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
                     <defs>
@@ -594,7 +594,7 @@ export default function DashboardPage() {
             </div>
           </Surface>
 
-          <Surface elevation={1} className="p-5">
+          <Surface interactive className="p-5">
             <div className="flex items-center gap-2">
               <Activity className="size-5 text-muted-foreground" />
               <h2 className="font-semibold">État de la station</h2>

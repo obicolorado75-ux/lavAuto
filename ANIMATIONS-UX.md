@@ -616,3 +616,79 @@ divergence se manifesterait par un éclair blanc en production, pas par une
 erreur de compilation.
 
 Suite complète : **123 tests**.
+
+---
+
+## 15. Survol, ombre et élévation 3D des cartes, tableaux et graphiques (31 octobre 2026)
+
+Troisième passe, demandée explicitement : **mouvement au survol, échelle,
+ombre, élévation 3D** sur les trois familles de surfaces — cartes, tableaux,
+graphiques.
+
+Le point de départ était un paradoxe : `src/index.css` contenait déjà tout
+(`.surface-3d`, `.elev-1..4`, `.scene-3d`) et `src/coreui.css` annulait
+l'ensemble en `!important` — *« le template est volontairement plat »*. Les
+élévations existaient donc dans le code et n'étaient visibles nulle part.
+
+### 15.1 Décision : le template n'est plus plat
+
+Le relief porte la hiérarchie : une carte cliquable décolle, un tableau posé
+dans une carte garde son ombre, un graphique s'éclaire. La règle
+d'aplatissement a été remplacée par une grammaire explicite — une carte sans
+`card-3d` ni `elev-*` reste plate, et c'est le défaut. Seul `edge-3d` (relief
+de bordure) reste neutralisé : il doublait le liseré peint par CoreUI.
+
+### 15.2 Les trois gestes
+
+| Surface | Classe | Au repos | Au survol | Durée |
+|---|---|---|---|---|
+| Carte interactive | `.card-3d` | `elev-1` + liseré | −4 px, échelle 1,012, `rotateX(-0.6deg)`, ombre `elev-3`, liseré couleur d'action | 160 ms |
+| Carte dense | `.card-3d-tight` | idem | −2 px, échelle 1,006 | 160 ms |
+| Ligne de tableau | `[data-slot="table-row"]` | — | −1 px, fond teinté, liseré d'accent sur la 1ʳᵉ cellule | 160 ms |
+| Conteneur de tableau | `.table-3d` | `elev-2`, bord, en-tête en relief | ombre `elev-3` (la surface ne bouge pas) | 160 ms |
+| Graphique | `.chart-3d` | — | ombre colorée sur le SVG, séries à 92 % | 160 ms |
+
+Le graphique est le seul à **ne pas changer de taille** : on lit une donnée,
+on ne la manipule pas. Faire glisser les axes sous le curseur au moment où
+l'œil vise une valeur serait un contresens d'usage.
+
+### 15.3 Ce qui a été branché
+
+- **Cartes** — `ui/card.tsx` : `interactive` → `.card-3d` (remplace
+  `interactive-scale`), nouveau `elevation={1|2|3}` pour le relief statique et
+  `hoverScale="tight"` pour les grilles denses. `HOVER_CARD` (1,2 %, −4 px)
+  remplace `HOVER_LIFT` dans `ElevatedCard` et `MotionCard`.
+- **Tableaux** — `ui/table.tsx` : `elevated` ajoute `.table-3d`,
+  `animateRows` (actif par défaut) ajoute `.table-anim`. Les dix conteneurs
+  `overflow-x-auto rounded-lg border` des écrans passent à `.table-3d`.
+- **Graphiques** — `ui/chart.tsx` : `ChartContainer` applique `.chart-3d` et
+  `.chart-reveal` (fondu de 8 px au montage). Les cartes de graphique de
+  `reports` et `team-performance` deviennent `Card interactive`, le graphique
+  du tableau de bord et celui de la console reçoivent les mêmes classes.
+- **Cascade des lignes** — `.table-anim` : 16 ms d'écart, plafonné aux douze
+  premières lignes. CSS pur : cent lignes animées par framer-motion coûteraient
+  plus cher en rendu que le gain perçu.
+
+### 15.4 Jetons ajoutés
+
+| Jeton | Valeur | Rôle |
+|---|---|---|
+| `DURATION.hoverShadow` | 160 ms | Survolement d'une surface (une ombre en 120 ms « claque ») |
+| `HOVER_MS` | 160 | Même valeur, exposée pour les styles inline et les tests |
+| `HOVER_CARD` | `{ scale: 1.012, y: -4 }` | Carte de grille |
+| `HOVER_CHART` | `{ scale: 1.004, y: -2 }` | Graphique (presque immobile) |
+| `--motion-hover` / `--motion-enter` | `160ms` / `240ms` | Côté CSS, alignés sur les jetons JS |
+| `--hover-lift` / `--hover-scale` / `--tilt-3d` | `-4px` / `1.012` / `900px` | Amplitude du survol |
+
+### 15.5 Coût et garde-fous
+
+Seuls `transform`, `opacity` et `filter` sont animés. L'ombre haute n'est
+jamais une `box-shadow` en transition : elle est portée par un pseudo-élément
+dont on ne fait varier que l'opacité (animer un `box-shadow` recalcule un flou
+à chaque image). `prefers-reduced-motion` neutralise décollement,
+inclinaison et ombre colorée ; les élévations statiques restent, ce sont des
+repères de lecture.
+
+Aucune dépendance ajoutée. `tests/motion-elevation.test.ts` (7 cas) verrouille
+les amplitudes, l'alignement JS/CSS de la durée, la présence des classes dans
+les trois composants et la garde de mouvement réduit.

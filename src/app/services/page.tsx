@@ -493,7 +493,7 @@ export default function ServicesPage() {
             {categoriesError && <p role="alert" className="text-sm text-destructive">Impossible de charger les catégories : {categoriesError}</p>}
             {(loading || categoriesLoading) && <TableSkeleton rows={5} cols={5} label="Synchronisation du catalogue" />}
             {!loading && !error && (
-              <div className="overflow-x-auto rounded-lg border">
+              <div className="overflow-x-auto table-3d">
                 <Table>
                   <TableHeader><TableRow><TableHead>Prestation</TableHead><TableHead>Catégorie</TableHead><TableHead>Durée</TableHead><TableHead className="text-right">Prix</TableHead><TableHead>Statut</TableHead>{canManage && <TableHead className="text-right">Actions</TableHead>}</TableRow></TableHeader>
                   <TableBody>

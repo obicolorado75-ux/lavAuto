@@ -14,6 +14,8 @@ Ce document décrit la règle produit retenue, son implémentation et la manièr
 | Essai arrivé à échéance | `expired` | **Lecture seule** (détail ci-dessous) |
 | Forfait payant en attente de validation | `pending` | Aucune restriction (le paiement est traité hors ligne) |
 | Forfait payant validé | `active` | Aucune restriction, droits du forfait |
+| Forfait payant échu, dans la tolérance (J+1 → J+7) | `active` + `past_due` | Écriture ouverte, bandeau daté, `expired_reason: null` |
+| Forfait payant échu, tolérance écoulée | `expired` (`expired_reason: "payment"`) | Lecture seule, comme un essai échu — mais le message parle de paiement |
 | Abonnement résilié | `cancelled` | Lecture seule, comme un essai échu |
 
 ### Ce qui se passe à l'échéance
@@ -34,6 +36,15 @@ Ce document décrit la règle produit retenue, son implémentation et la manièr
 - l'onboarding et la page **Forfait et abonnement** restent entièrement accessibles, pour pouvoir sortir de la situation.
 
 Les limites structurelles du forfait (1 site, 3 travailleurs, 10 prestations, multi-stations) ne sont **pas** levées par l'essai : elles continuent d'être appliquées comme avant.
+
+### Un impayé n'est pas un essai
+
+`expired_reason` (`"trial"` | `"payment"` | `"cancelled"`) porte la cause de la
+lecture seule jusqu'à l'écran. Sans lui, un client qui paie depuis huit mois
+recevait le message « votre essai gratuit de 14 jours est terminé » — faux, et
+au pire moment. Les trois causes donnent trois phrases, trois codes d'erreur
+(`trial_expired` sauf pour `"payment"` → `subscription_payment_due`) et zéro
+courriel de relance d'essai (`planReminder` refuse un état `payment`).
 
 ---
 
@@ -128,7 +139,7 @@ Le compte de démonstration (`demo@washpilot.ci` / `WashPilot2026!`) est désorm
 
 ## 5. Tests et vérifications
 
-`tests/entitlements.test.ts` — 15 tests (`node:test`) sur la logique pure : durée de 14 jours, progression à mi-parcours, déblocage des rapports avancés pendant l'essai, bascule en lecture seule à l'échéance exacte, non-restriction des forfaits `active`/`pending`, résiliation, absence d'abonnement, troncature des périodes de rapport.
+`tests/entitlements.test.ts` — 23 tests (`node:test`) sur la logique pure : durée de 14 jours, progression à mi-parcours, déblocage des rapports avancés pendant l'essai, bascule en lecture seule à l'échéance exacte, non-restriction des forfaits `active`/`pending`, résiliation, absence d'abonnement, troncature des périodes de rapport.
 
 Vérifications exécutées :
 

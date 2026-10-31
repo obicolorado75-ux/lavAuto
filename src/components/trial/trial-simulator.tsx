@@ -7,11 +7,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { apiErrorMessage, apiFetch } from "@/lib/api"
 import { useSubscription } from "@/lib/subscription"
 
-const PRESETS: { label: string; days: number }[] = [
+const PRESETS: { label: string; days: number; paid?: boolean }[] = [
   { label: "11 jours restants", days: 11 },
   { label: "3 jours restants", days: 3 },
   { label: "1 jour restant", days: 1 },
   { label: "Essai terminé", days: 0 },
+]
+
+// Impayé sur un forfait payant : le cas qu'on ne pouvait pas voir à l'écran
+// sans attendre l'échéance d'un vrai abonnement.
+const PAID_PRESETS: { label: string; days: number; paid?: boolean }[] = [
+  { label: "Payant : échu de 2 j", days: -2, paid: true },
+  { label: "Payant : échu de 5 j", days: -5, paid: true },
+  { label: "Payant : tolérance écoulée", days: -9, paid: true },
 ]
 
 /**
@@ -26,13 +34,13 @@ export function TrialSimulator() {
 
   if (!import.meta.env.DEV) return null
 
-  async function simulate(days: number) {
+  async function simulate(days: number, paid = false) {
     setBusy(days)
     setError(null)
     try {
       const response = await apiFetch("/api/v1/subscription/simulate", {
         method: "POST",
-        body: JSON.stringify({ days_left: days, plan_code: "starter" }),
+        body: JSON.stringify({ days_left: days, plan_code: paid ? "pro" : "starter", paid }),
       })
       if (!response.ok) {
         setError(await apiErrorMessage(response))
@@ -59,14 +67,14 @@ export function TrialSimulator() {
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <div className="flex flex-wrap gap-2">
-          {PRESETS.map((preset) => (
+          {[...PRESETS, ...PAID_PRESETS].map((preset) => (
             <Button
-              key={preset.days}
+              key={`${preset.label}`}
               type="button"
               size="sm"
-              variant="outline"
+              variant={preset.paid ? "secondary" : "outline"}
               disabled={busy !== null}
-              onClick={() => void simulate(preset.days)}
+              onClick={() => void simulate(preset.days, preset.paid)}
             >
               {busy === preset.days ? "…" : preset.label}
             </Button>

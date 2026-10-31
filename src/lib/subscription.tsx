@@ -50,6 +50,16 @@ export interface SubscriptionState {
   days_remaining: number
   progress: number
   read_only: boolean
+  /** Forfait payant dont l'échéance est dépassée (dans ou hors tolérance). */
+  past_due: boolean
+  /** Durée de la tolérance appliquée (jours). */
+  payment_grace_days: number
+  /** Fin de la tolérance de paiement ; `null` hors impayé. */
+  payment_grace_ends_at: string | null
+  payment_grace_days_remaining: number
+  days_past_due: number
+  /** Cause de la lecture seule — pour ne pas parler d'essai à un payeur. */
+  expired_reason: "trial" | "payment" | "cancelled" | null
   report_window_days: number | null
   capabilities: Record<Capability, boolean>
   restricted: Capability[]
@@ -232,6 +242,23 @@ export interface CapabilityCheck {
   loading: boolean
 }
 
+/**
+ * Motif d'un refus en lecture seule, par cause.
+ *
+ * Annoncer « votre essai est terminé » à un client qui paie depuis huit mois
+ * n'est pas une approximation : c'est un mensonge sur l'écran où il décide de
+ * rester ou de partir.
+ */
+export function readOnlyReason(state: SubscriptionState, label = "Cette action"): string {
+  if (state.expired_reason === "cancelled") {
+    return `${label} : votre abonnement est résilié. Choisissez un forfait pour reprendre les enregistrements.`
+  }
+  if (state.expired_reason === "payment") {
+    return `${label} : l’échéance de votre forfait est dépassée depuis ${state.days_past_due} jour(s) et la tolérance de paiement est écoulée. Vos données restent consultables ; les enregistrements reprennent dès la validation du paiement.`
+  }
+  return `${label} : votre essai gratuit de ${state.trial_days ?? 14} jours est terminé. Choisissez un forfait pour réactiver les enregistrements.`
+}
+
 /** Droit d'exécuter une action, avec le motif du refus. */
 export function useCapability(capability: Capability): CapabilityCheck {
   const { state, can, readOnly, loading } = useSubscription()
@@ -257,8 +284,6 @@ export function useCapability(capability: Capability): CapabilityCheck {
     allowed: false,
     readOnly,
     loading: false,
-    reason: readOnly
-      ? `${label} : votre essai gratuit de ${state.trial_days ?? 14} jours est terminé. Choisissez un forfait pour réactiver les enregistrements.`
-      : `${label} n’est pas inclus dans votre forfait ${state.plan_name ?? "actuel"}.`,
+    reason: readOnly ? readOnlyReason(state, label) : `${label} n’est pas inclus dans votre forfait ${state.plan_name ?? "actuel"}.`,
   }
 }

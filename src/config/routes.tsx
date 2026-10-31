@@ -91,6 +91,10 @@ export const routes: RouteObject[] = [
     path: "/settings/access",
     lazy: page(() => import("@/app/settings/access/page")),
   },
+  {
+    path: "/settings/branding",
+    lazy: page(() => import("@/app/settings/branding/page")),
+  },
   // Catch-all route for 404
   { path: "*", lazy: page(() => import("@/app/errors/not-found/page")) },
 ]

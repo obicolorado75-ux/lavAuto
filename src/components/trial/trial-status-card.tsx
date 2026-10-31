@@ -46,7 +46,11 @@ export function TrialStatusCard() {
     )
   }
 
-  if (!state || (!isTrial && !isExpired)) return null
+  // Cette carte parle d'essai : elle n'a rien à dire à un forfait payant, même
+  // échu. Un client qui paie depuis huit mois n'a jamais eu d'« essai à
+  // J-3 » à qui l'on annonce une échéance dans 14 jours.
+  const isTrialContext = isTrial || (isExpired && state?.expired_reason === "trial")
+  if (!state || !isTrialContext) return null
 
   const { days, hours, minutes, seconds } = splitDuration(msRemaining)
   const labels = state.capability_labels ?? ({} as Record<Capability, string>)

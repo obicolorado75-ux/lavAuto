@@ -53,6 +53,7 @@ const ALLOWED_UNGUARDED: Record<string, string> = {
   "admin.ts|POST /organizations/:id/activate": "console éditeur : montée sous requireOperator",
   "admin.ts|POST /organizations/:id/suspend": "console éditeur : montée sous requireOperator",
   "admin.ts|POST /organizations/:id/extend-trial": "console éditeur : montée sous requireOperator",
+  "admin.ts|POST /organizations/:id/extend-grace": "console éditeur : montée sous requireOperator",
   "admin.ts|POST /organizations/:id/schedule-deletion": "console éditeur : montée sous requireOperator",
   "admin.ts|POST /organizations/:id/cancel-deletion": "console éditeur : montée sous requireOperator",
   "admin.ts|POST /organizations/:id/purge": "console éditeur : montée sous requireOperator",
@@ -112,6 +113,8 @@ const ALLOWED_UNGUARDED: Record<string, string> = {
   "support.ts|GET /support/requests": "assistance : liste filtrée par rôle et par auteur dans la route",
   "support.ts|GET /support/requests/:id": "assistance : fil vérifié par station et par auteur dans la route",
   "support.ts|POST /support/requests/:id/messages": "assistance : message vérifié par station et par auteur dans la route",
+  "branding.ts|GET /branding": "identité visuelle : tout membre voit le logo de sa station, aucune donnée personnelle",
+  "branding.ts|GET /branding/logo": "image du logo : lisible par tout membre (barre latérale) ; lire ce qu'on affiche partout n'est pas un privilège",
 }
 
 /** Marqueurs d'un contrôle d'autorisation dans le corps de la route. */

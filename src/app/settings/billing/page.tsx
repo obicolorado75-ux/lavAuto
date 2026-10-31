@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/card"
 import { useApi } from "@/lib/api"
 import type { OnboardingSummary } from "@/lib/onboarding-api"
+import { ArrearsCard } from "@/components/trial/arrears-card"
 import { TrialStatusCard } from "@/components/trial/trial-status-card"
 import { UpgradeRequestCard } from "@/components/trial/upgrade-request-card"
 import { TrialSimulator } from "@/components/trial/trial-simulator"
@@ -63,8 +64,12 @@ export default function BillingSettings() {
           </p>
         </div>
 
+        <ArrearsCard />
         <TrialStatusCard />
-        <UpgradeRequestCard currentPlanCode={plan?.code ?? null} />
+        {/* Ancre de la carte d'impayé : le bouton « Régler » y mène sans JS. */}
+        <div id="payer" className="scroll-mt-24">
+          <UpgradeRequestCard currentPlanCode={plan?.code ?? null} />
+        </div>
 
         {loading ? (
           <Card role="status" aria-busy="true" aria-label="Chargement du forfait">

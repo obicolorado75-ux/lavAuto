@@ -78,6 +78,25 @@ export function hasUnfilledDatabaseUrl(databaseUrl?: string): boolean {
   )
 }
 
+/**
+ * Faut-il refuser cette URL comme « gabarit non rempli » ?
+ *
+ * `hasUnfilledDatabaseUrl` répond « oui » à toute URL sans mot de passe. C'est
+ * le bon réflexe pour une base hébergée, où un mot de passe oublié se solde par
+ * un repli silencieux sur une base vide. C'est le mauvais pour un PostgreSQL
+ * local en `trust`, qui n'a légitimement pas de mot de passe : la question ne
+ * vaut donc que pour une connexion distante.
+ *
+ * Le serveur et `scripts/supabase-activate.ts` partagent cette règle plutôt
+ * que de la réécrire chacun de leur côté.
+ */
+export function isUnfilledRemoteDatabaseUrl(databaseUrl?: string): boolean {
+  const url = (databaseUrl ?? "").trim()
+  if (url === "") return false
+  if (describeConnection(url).mode === "local") return false
+  return hasUnfilledDatabaseUrl(url)
+}
+
 // ---------------------------------------------------------------------------
 // Profil de la connexion : pooler ou connexion directe ?
 // ---------------------------------------------------------------------------

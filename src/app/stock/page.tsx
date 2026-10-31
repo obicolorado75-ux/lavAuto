@@ -439,7 +439,7 @@ export default function StockPage() {
             <BlockedReason reason={movementGate.reason} />
             {loading && <div className="mb-3"><TableSkeleton rows={4} cols={5} label="Synchronisation du stock" /></div>}
             {!loading && !error && (
-              <div className="overflow-x-auto rounded-lg border">
+              <div className="overflow-x-auto table-3d">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -520,7 +520,7 @@ export default function StockPage() {
             <CardDescription>Chaque ligne est définitive : un mouvement se contrepasse, il ne s’efface pas.</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto rounded-lg border">
+            <div className="overflow-x-auto table-3d">
               <Table>
                 <TableHeader>
                   <TableRow>

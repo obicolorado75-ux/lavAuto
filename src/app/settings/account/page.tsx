@@ -105,7 +105,9 @@ export default function AccountSettings() {
               réglage de votre téléphone ou de votre ordinateur, y compris
               lorsqu’il bascule automatiquement le soir. La couleur adapte
               aussi le texte posé sur les boutons et les badges, pour rester
-              lisible dans les deux modes.
+              lisible dans les deux modes. Sans choix de votre part,
+              l’application prend celle de votre station ; choisir ici ne vaut
+              que pour cet appareil.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">

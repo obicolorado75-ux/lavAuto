@@ -10,7 +10,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
-import { AlertTriangle, Clock, Download, Undo2 } from "lucide-react"
+import { AlertTriangle, Clock, Download, Lock, Undo2 } from "lucide-react"
 
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
 
@@ -160,7 +160,7 @@ export function ConsoleRevenue() {
         title="Trésorerie et revenu, sur douze mois"
         description="Les barres sont l'argent reçu le mois où il arrive ; la ligne est le même argent étalé sur la période qu'il couvre. Un client qui règle six mois d'avance fait une barre haute suivie de cinq barres vides — la ligne, elle, ne bouge pas."
       >
-        <div className="px-2 py-4">
+        <div className="chart-3d chart-reveal px-2 py-4">
           <ResponsiveContainer width="100%" height={260}>
             <ComposedChart data={chart} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" vertical={false} />
@@ -191,13 +191,25 @@ export function ConsoleRevenue() {
                   name === "encaisse" ? "Encaissé" : "Revenu reconnu",
                 ]}
               />
-              <Bar dataKey="encaisse" fill="#38bdf8" radius={[4, 4, 0, 0]} maxBarSize={28} />
+              {/* 600 ms : la durée de tous les tracés de l'application. Le défaut
+                  de Recharts (1,5 s) donne l'impression d'un écran qui peine à
+                  charger, alors qu'il a déjà ses données. */}
+              <Bar
+                dataKey="encaisse"
+                fill="#38bdf8"
+                radius={[4, 4, 0, 0]}
+                maxBarSize={28}
+                animationDuration={600}
+                animationEasing="ease-out"
+              />
               <Line
                 type="monotone"
                 dataKey="reconnu"
                 stroke="#fbbf24"
                 strokeWidth={2}
                 dot={false}
+                animationDuration={600}
+                animationEasing="ease-out"
               />
             </ComposedChart>
           </ResponsiveContainer>
@@ -265,6 +277,7 @@ export function ConsoleRevenue() {
                   <th className="px-4 py-2 font-medium">Forfait</th>
                   <th className="px-4 py-2 font-medium">Échéance</th>
                   <th className="px-4 py-2 font-medium">Retard</th>
+                  <th className="px-4 py-2 font-medium">Lecture seule</th>
                   <th className="px-4 py-2 text-right font-medium">Mensualité</th>
                 </tr>
               </thead>
@@ -286,6 +299,19 @@ export function ConsoleRevenue() {
                         <AlertTriangle className="size-3.5" />
                         {o.days_overdue} j
                       </span>
+                    </td>
+                    {/* Le chiffre qui décide de l'appel : combien de jours
+                        avant la coupure réelle. « 0 j » est déjà fermé. */}
+                    <td className="px-4 py-2">
+                      {o.days_until_read_only > 0 ? (
+                        <span className="text-slate-300">
+                          dans {o.days_until_read_only} j
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-rose-300">
+                          <Lock className="size-3.5" /> fermé
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-2 text-right tabular-nums text-white">
                       {formatFcfa(o.price_cents)}
