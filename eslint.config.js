@@ -34,4 +34,22 @@ export default defineConfig([
       'react-refresh/only-export-components': 'off',
     },
   },
+  {
+    // Contextes d'application : le couple <Provider> + useXxx() est le pattern
+    // idiomatique React (auth, permissions, confirmations, abonnements…). Le
+    // hook exporté à côté du composant n'est pas une dette : c'est l'API du
+    // module. On accepte l'avertissement sur ces fichiers précis plutôt que de
+    // fragmenter les contextes en trois fichiers chacun.
+    files: [
+      'src/lib/auth.tsx',
+      'src/lib/confirm.tsx',
+      'src/lib/notifications.tsx',
+      'src/lib/permissions.tsx',
+      'src/lib/subscription.tsx',
+      'src/console/auth.tsx',
+    ],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
 ])

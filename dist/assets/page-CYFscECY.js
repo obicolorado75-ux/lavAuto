@@ -1,0 +1,1 @@
+import{n as e}from"./createLucideIcon-BsU3l3Za.js";import{t}from"./app-error-state-BF7eCO3H.js";var n=e();function r(){return(0,n.jsx)(t,{code:`401`,title:`Connexion requise`,description:`Votre session n’est pas valide. Connectez-vous pour accéder à cet espace.`,primaryLabel:`Se connecter`,primaryTo:`/auth/sign-in`})}function i(){return(0,n.jsx)(r,{})}export{i as default};

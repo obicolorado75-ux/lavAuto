@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="fr-CI">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      Favicons. La variante sombre existe parce que l'emblème contient des
+      traits argentés : sur l'onglet d'un navigateur en thème sombre, la
+      version claire se réduirait à une tache illisible.
+    -->
+    <link rel="icon" href="/brand/icon-32.png" type="image/png" sizes="32x32" />
+    <link
+      rel="icon"
+      href="/brand/icon-32-dark.png"
+      type="image/png"
+      sizes="32x32"
+      media="(prefers-color-scheme: dark)"
+    />
+    <link rel="apple-touch-icon" href="/brand/icon-180.png" sizes="180x180" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Application installable. Un gérant peut poser WashPilot sur l'écran
+      d'accueil de son téléphone et l'ouvrir sans passer par le navigateur —
+      y compris quand le réseau est tombé.
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="WashPilot" />
+    <meta name="theme-color" content="#ffffff" />
+
+    <!--
+      Thème appliqué AVANT le premier rendu.
+
+      Sans ce script, React ne pose la classe qu'au premier effet : un
+      utilisateur en thème sombre voit un éclair blanc à chaque chargement.
+      Le code est volontairement dupliqué depuis `src/lib/theme.ts` et
+      `src/lib/palette.ts` — il doit s'exécuter avant tout module, donc il ne
+      peut rien importer. Les clés de stockage doivent rester identiques dans
+      les fichiers source (« bleu » = défaut de `src/lib/palette.ts`).
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = window.localStorage.getItem("vite-ui-theme")
+          var theme = stored === "light" || stored === "dark" ? stored : null
+          var resolved =
+            theme ||
+            (window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light")
+          var root = document.documentElement
+          root.classList.add(resolved)
+          root.style.colorScheme = resolved
+          var meta = document.querySelector('meta[name="theme-color"]')
+          if (meta) meta.content = resolved === "dark" ? "#0a0a0a" : "#ffffff"
+
+          // Thème couleur : mêmes quatre variables que ColorThemeProvider.
+          // Une copie de la palette est inévitable ici ; `tests/theme.test.ts`
+          // vérifie que chaque teinte correspond à src/lib/palette.ts.
+          var palette = {
+            bleu: {
+              light: { primary: "oklch(0.505 0.17 262)", accent: "oklch(0.955 0.02 262)", success: "oklch(0.56 0.15 152)", info: "oklch(0.56 0.12 240)" },
+              dark: { primary: "oklch(0.72 0.14 262)", accent: "oklch(0.3 0.05 262)", success: "oklch(0.75 0.16 152)", info: "oklch(0.75 0.1 240)" },
+            },
+            indigo: {
+              light: { primary: "oklch(0.5 0.19 272)", accent: "oklch(0.955 0.02 272)", success: "oklch(0.56 0.15 152)", info: "oklch(0.56 0.17 258)" },
+              dark: { primary: "oklch(0.7 0.16 272)", accent: "oklch(0.3 0.06 272)", success: "oklch(0.75 0.16 152)", info: "oklch(0.76 0.14 258)" },
+            },
+            violet: {
+              light: { primary: "oklch(0.5 0.19 302)", accent: "oklch(0.955 0.02 302)", success: "oklch(0.56 0.15 152)", info: "oklch(0.56 0.16 285)" },
+              dark: { primary: "oklch(0.72 0.16 302)", accent: "oklch(0.3 0.06 302)", success: "oklch(0.75 0.16 152)", info: "oklch(0.76 0.13 285)" },
+            },
+            teal: {
+              light: { primary: "oklch(0.52 0.1 195)", accent: "oklch(0.955 0.02 195)", success: "oklch(0.56 0.15 152)", info: "oklch(0.56 0.11 220)" },
+              dark: { primary: "oklch(0.75 0.1 195)", accent: "oklch(0.3 0.04 195)", success: "oklch(0.78 0.15 152)", info: "oklch(0.76 0.1 220)" },
+            },
+            emeraude: {
+              light: { primary: "oklch(0.52 0.13 162)", accent: "oklch(0.955 0.02 162)", success: "oklch(0.55 0.15 152)", info: "oklch(0.55 0.11 215)" },
+              dark: { primary: "oklch(0.75 0.13 162)", accent: "oklch(0.3 0.04 162)", success: "oklch(0.8 0.15 152)", info: "oklch(0.75 0.1 215)" },
+            },
+            ambre: {
+              light: { primary: "oklch(0.55 0.12 70)", accent: "oklch(0.955 0.02 70)", success: "oklch(0.54 0.14 150)", info: "oklch(0.54 0.11 240)" },
+              dark: { primary: "oklch(0.78 0.12 70)", accent: "oklch(0.3 0.05 70)", success: "oklch(0.78 0.15 150)", info: "oklch(0.75 0.1 240)" },
+            },
+            rose: {
+              light: { primary: "oklch(0.52 0.16 5)", accent: "oklch(0.955 0.025 5)", success: "oklch(0.56 0.15 152)", info: "oklch(0.56 0.12 240)" },
+              dark: { primary: "oklch(0.75 0.14 5)", accent: "oklch(0.3 0.06 5)", success: "oklch(0.78 0.15 152)", info: "oklch(0.76 0.1 240)" },
+            },
+            ardoise: {
+              light: { primary: "oklch(0.38 0.02 250)", accent: "oklch(0.955 0.005 250)", success: "oklch(0.56 0.13 152)", info: "oklch(0.55 0.06 250)" },
+              dark: { primary: "oklch(0.85 0.02 250)", accent: "oklch(0.3 0.01 250)", success: "oklch(0.78 0.14 152)", info: "oklch(0.75 0.05 250)" },
+            },
+          }
+          // 1. le choix personnel ; 2. le thème de la station (cache du dernier
+          // chargement, la valeur de référence restant en base) ; 3. le défaut.
+          var stored = window.localStorage.getItem("washpilot-color-theme")
+          var station = window.localStorage.getItem("washpilot-station-color-theme")
+          var chosen = palette[stored] ? stored : palette[station] ? station : "bleu"
+          var vars = palette[chosen][resolved]
+          root.dataset.colorTheme = chosen
+          root.style.setProperty("--primary", vars.primary)
+          root.style.setProperty("--accent", vars.accent)
+          root.style.setProperty("--success", vars.success)
+          root.style.setProperty("--info", vars.info)
+        } catch (error) {
+          /* Stockage indisponible : on garde le thème clair par défaut. */
+        }
+      })()
+    </script>
+
+    <!-- Primary Meta Tags -->
+    <title>WashPilot CI — Gestion de station de lavage</title>
+    <meta name="title" content="WashPilot CI — Gestion de station de lavage" />
+    <meta
+      name="description"
+      content="WashPilot CI aide les stations de lavage à suivre leurs lavages, leurs encaissements et leur équipe."
+    />
+
+    <!-- Canonical (points to the main template URL) -->
+    <link rel="canonical" href="https://washpilot.ci/" />
+
+    <!-- Open Graph / Facebook / LinkedIn -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="WashPilot CI" />
+    <meta property="og:title" content="WashPilot CI — Gestion de station de lavage" />
+    <meta
+      property="og:description"
+      content="WashPilot CI aide les stations de lavage à suivre leurs lavages, leurs encaissements et leur équipe."
+    />
+    <meta property="og:url" content="https://washpilot.ci/" />
+    <!-- Use an absolute URL so scrapers can fetch the image reliably -->
+    <meta property="og:image" content="/og-image.png" />
+    <meta
+      property="og:image:alt"
+      content="Aperçu de WashPilot CI"
+    />
+    <!-- Optional: dimensions (leave generic if not exact) -->
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="WashPilot CI — Gestion de station de lavage" />
+    <meta
+      name="twitter:description"
+      content="WashPilot CI aide les stations de lavage à suivre leurs lavages, leurs encaissements et leur équipe."
+    />
+    <meta name="twitter:image" content="/og-image.png" />
+    <meta
+      name="twitter:image:alt"
+      content="Aperçu de WashPilot CI"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap"
+      rel="stylesheet"
+    />
+    <script type="module" crossorigin src="/assets/index-CFGIRze5.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-XKyaHtl9.js">
+    <link rel="modulepreload" crossorigin href="/assets/createLucideIcon-BsU3l3Za.js">
+    <link rel="modulepreload" crossorigin href="/assets/react-dom-DDg8p69S.js">
+    <link rel="modulepreload" crossorigin href="/assets/preload-helper-BLdHbfdN.js">
+    <link rel="modulepreload" crossorigin href="/assets/dist-HhLLURTc.js">
+    <link rel="modulepreload" crossorigin href="/assets/api-B23Rqb-3.js">
+    <link rel="modulepreload" crossorigin href="/assets/auth-Cl_OP6_S.js">
+    <link rel="modulepreload" crossorigin href="/assets/clsx-DB0hHKMi.js">
+    <link rel="modulepreload" crossorigin href="/assets/button-Dc4rFJXc.js">
+    <link rel="modulepreload" crossorigin href="/assets/with-selector-DqPQgrof.js">
+    <link rel="modulepreload" crossorigin href="/assets/x-DlfCyoc6.js">
+    <link rel="modulepreload" crossorigin href="/assets/dialog-DnUqKmds.js">
+    <link rel="modulepreload" crossorigin href="/assets/api-b7KbN8gI.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-By_2XkWB.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

@@ -1,0 +1,1 @@
+import{n as e}from"./createLucideIcon-BsU3l3Za.js";import{t}from"./app-error-state-BF7eCO3H.js";var n=e();function r(){return(0,n.jsx)(t,{code:`403`,title:`Accès refusé`,description:`Votre rôle ne permet pas d’effectuer cette action dans l’organisation active.`})}function i(){return(0,n.jsx)(r,{})}export{i as default};

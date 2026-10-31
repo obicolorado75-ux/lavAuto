@@ -1,0 +1,1 @@
+import"./rolldown-runtime-XKyaHtl9.js";import{n as e,r as t}from"./createLucideIcon-BsU3l3Za.js";import{t as n}from"./dist-HhLLURTc.js";import{t as r}from"./CFormInput-Bc2XkSLg.js";t();var i=e();function a({className:e,type:t,...a}){return(0,i.jsx)(r,{type:t,"data-slot":`input`,className:n(`w-full min-w-0 text-base md:text-sm`,e),...a})}export{a as t};

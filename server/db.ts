@@ -1335,11 +1335,14 @@ async function seedDemoData(
   queryFn: (sql: string, params?: unknown[]) => Promise<DbQueryResult<Record<string, unknown>>>,
 ) {
   if (env.NODE_ENV === "production") return;
-  // En test, le jeu de démonstration est toujours semé : la quasi-totalité des
-  // suites s'authentifient avec ces comptes. Le désactiver par `.env` (ce que
-  // fait une installation réelle) rendrait la suite rouge pour une raison sans
-  // rapport avec le code testé — d'où l'exception explicite.
-  if (env.NODE_ENV !== "test" && env.SEED_DEMO_DATA.trim().toLowerCase() === "false") return;
+  // Politique « fail-safe » : le seed ne s'exécute que si l'opérateur l'a
+  // explicitement demandé (SEED_DEMO_DATA=true). Par défaut (variable vide),
+  // rien n'est semé — un oubli de configuration ne peut plus créer des comptes
+  // publics sur une base réelle. En test, le jeu est toujours semé : la
+  // quasi-totalité des suites s'authentifient avec ces comptes ; le désactiver
+  // par `.env` rendrait la suite rouge pour une raison sans rapport avec le
+  // code testé — d'où l'exception explicite.
+  if (env.NODE_ENV !== "test" && env.SEED_DEMO_DATA.trim().toLowerCase() !== "true") return;
 
   const existingUser = await queryFn("SELECT id FROM users WHERE lower(email) = $1", ["demo@washpilot.ci"]);
   if (existingUser.rows && existingUser.rows.length > 0) return;

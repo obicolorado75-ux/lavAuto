@@ -1,0 +1,1 @@
+import{n as e}from"./createLucideIcon-BsU3l3Za.js";import{t}from"./app-error-state-BF7eCO3H.js";var n=e();function r(){return(0,n.jsx)(t,{code:`503`,title:`Service temporairement indisponible`,description:`WashPilot CI est momentanément indisponible. Veuillez réessayer plus tard.`,onRetry:()=>window.location.reload()})}function i(){return(0,n.jsx)(r,{})}export{i as default};

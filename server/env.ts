@@ -115,10 +115,11 @@ const schema = z.object({
   /**
    * Jeu de démonstration (station « Cocody Riviera », comptes @washpilot.ci).
    *
-   * Actif par défaut en développement et en test, où il donne des données
-   * lisibles immédiatement. Jamais en production. `false` sur une base réelle :
-   * sans cela, effacer les comptes serait inutile — le démarrage suivant les
-   * recréerait, avec leur mot de passe public.
+   * Politique « fail-safe » : inactif par défaut. Il faut poser explicitement
+   * `SEED_DEMO_DATA=true` pour le semer (dev local, smoke tests). En test
+   * automatisé il est toujours semé ; jamais en production. Sans ce verrou,
+   * un simple oubli de configuration recréerait à chaque démarrage des
+   * comptes au mot de passe public sur une base réelle.
    */
   SEED_DEMO_DATA: z.string().trim().optional().default(""),
 

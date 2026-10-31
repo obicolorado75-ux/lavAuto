@@ -7,7 +7,7 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner"
 import { consoleRequest, formatDateTime } from "../api"
 import { Panel } from "../layout"
 import type { ErrorEvent } from "../types"
-import { durationLabel } from "./monitoring"
+import { durationLabel } from "../format"
 
 /**
  * Le détail d'un incident.

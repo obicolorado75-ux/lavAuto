@@ -1,0 +1,1 @@
+var e=[`cash`,`orange_money`,`mtn_momo`,`moov_money`,`wave`,`other`],t={cash:`Espèces`,orange_money:`Orange Money`,mtn_momo:`MTN MoMo`,moov_money:`Moov Money`,wave:`Wave`,other:`Autre`};function n(e){return t[e]??e}var r={pending:`À confirmer`,verified:`Confirmé`,failed:`Échoué`,refunded:`Remboursé`};export{r as n,n as r,e as t};
