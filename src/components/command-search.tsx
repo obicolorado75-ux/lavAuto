@@ -2,9 +2,8 @@
 
 import * as React from "react"
 import { useLocation, useNavigate } from "react-router-dom"
-import { ArrowRight, History, Search } from "lucide-react"
+import { ArrowRight, History } from "lucide-react"
 
-import { Button } from "@/components/ui/button"
 import {
   Command,
   CommandDialog,
@@ -15,7 +14,6 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command"
-import { Kbd } from "@/components/ui/kbd"
 import {
   ROUTE_META,
   contextualCommands,
@@ -37,41 +35,6 @@ import { usePermissions, type Permission } from "@/lib/permissions"
  * La palette ne propose jamais une destination que l'utilisateur ne peut pas
  * ouvrir : un résultat qui mène à un refus est pire qu'une absence.
  */
-
-interface SearchContextValue {
-  open: boolean
-  setOpen: (open: boolean) => void
-  openSearch: () => void
-}
-
-const SearchContext = React.createContext<SearchContextValue | null>(null)
-
-export function SearchProvider({ children }: { children: React.ReactNode }) {
-  const [open, setOpen] = React.useState(false)
-
-  const value = React.useMemo<SearchContextValue>(
-    () => ({ open, setOpen, openSearch: () => setOpen(true) }),
-    [open],
-  )
-
-  return (
-    <SearchContext.Provider value={value}>
-      {children}
-      <CommandSearch open={open} onOpenChange={setOpen} />
-    </SearchContext.Provider>
-  )
-}
-
-export function useSearch(): SearchContextValue {
-  const context = React.useContext(SearchContext)
-  return (
-    context ?? {
-      open: false,
-      setOpen: () => {},
-      openSearch: () => {},
-    }
-  )
-}
 
 /** Permission minimale pour ouvrir un écran, alignée sur la barre latérale. */
 const ROUTE_PERMISSION: Record<string, Permission> = {
@@ -268,24 +231,5 @@ export function CommandSearch({ open, onOpenChange }: CommandSearchProps) {
         </CommandList>
       </Command>
     </CommandDialog>
-  )
-}
-
-export function SearchTrigger({ onClick }: { onClick: () => void }) {
-  return (
-    <Button
-      variant="outline"
-      size="sm"
-      onClick={onClick}
-      aria-label="Rechercher — raccourci Commande K"
-      aria-keyshortcuts="Control+K Meta+K"
-      className="relative w-full justify-start font-normal text-muted-foreground sm:pr-12 md:w-44 lg:w-64"
-    >
-      <Search data-icon="inline-start" aria-hidden="true" />
-      <span className="truncate">Rechercher…</span>
-      <Kbd className="absolute top-1/2 right-1.5 hidden -translate-y-1/2 sm:inline-flex">
-        ⌘K
-      </Kbd>
-    </Button>
   )
 }

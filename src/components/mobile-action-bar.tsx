@@ -3,7 +3,7 @@
 import { Link, useLocation } from "react-router-dom"
 import { CreditCard, Droplets, LayoutPanelLeft, Search, Wallet } from "lucide-react"
 
-import { useSearch } from "@/components/command-search"
+import { useSearch } from "@/components/search-context"
 import { useAccess, usePermission } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 
