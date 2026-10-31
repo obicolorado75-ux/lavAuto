@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { resolvePgliteLocation, describePgliteLocation } from "./pglite-location.ts";
-import { buildSslConfig, chooseDatabaseTarget, describeConnection, hasUnfilledDatabaseUrl } from "./database-target.ts";
+import { buildSslConfig, chooseDatabaseTarget, describeConnection, isUnfilledRemoteDatabaseUrl } from "./database-target.ts";
 import { bindRlsGuard, isRlsRoleAvailable, probeRlsRole, type RlsPool } from "./db-rls.ts";
 import { env } from "./env.ts";
 import { migrateLegacyPlatformAdmins, syncPlatformOperators } from "./console-auth.ts";
@@ -1767,7 +1767,15 @@ export async function initDatabaseSchema(): Promise<boolean> {
     // Une URL encore gabarit (`<MOT_DE_PASSE>`) échouerait à se connecter, puis
     // tomberait dans le repli PGlite en laissant croire à un démarrage réussi —
     // avec une base vide. On refuse explicitement, plutôt que de le faire.
-    if (hasUnfilledDatabaseUrl(env.DATABASE_URL)) {
+    // Pooler en mode transaction : l'état de session (SET ROLE,
+    // app.current_org) n'y survit pas. On ne refuse pas le démarrage — un
+    // correctif peut être en cours — mais l'opérateur doit le savoir.
+    const connectionProfile = describeConnection(env.DATABASE_URL);
+    // Le gabarit se reconnaît à son mot de passe absent. Un PostgreSQL local
+    // en `trust` n'en a pas non plus : refuser ici empêcherait tout
+    // développement sur une base locale sans mot de passe. Le contrôle ne
+    // vaut donc que pour une connexion distante, celle où le gabarit trompe.
+    if (isUnfilledRemoteDatabaseUrl(env.DATABASE_URL)) {
       throw new Error(
         "DATABASE_URL contient encore un gabarit de mot de passe (<MOT_DE_PASSE> / [YOUR-PASSWORD]). " +
           "Renseignez le mot de passe du pooler Supabase (Settings → Database → Reset database password) " +
@@ -1775,10 +1783,6 @@ export async function initDatabaseSchema(): Promise<boolean> {
       );
     }
     try {
-      // Pooler en mode transaction : l'état de session (SET ROLE,
-      // app.current_org) n'y survit pas. On ne refuse pas le démarrage — un
-      // correctif peut être en cours — mais l'opérateur doit le savoir.
-      const connectionProfile = describeConnection(env.DATABASE_URL);
       if (connectionProfile.warning) console.warn(`[db] ${connectionProfile.warning}`);
       const externalPool = new Pool({
         connectionString: env.DATABASE_URL,

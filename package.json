@@ -17,6 +17,8 @@
     "smoke": "node scripts/smoke.mjs",
     "smoke:serverless": "node scripts/build-api.mjs && node scripts/smoke.mjs --serverless --bundle",
     "db:migrate": "supabase db push",
+    "db:activate": "tsx scripts/supabase-activate.ts",
+    "db:activate:check": "tsx scripts/supabase-activate.ts --check",
     "db:migration:new": "supabase migration new"
   },
   "dependencies": {

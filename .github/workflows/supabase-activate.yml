@@ -1,0 +1,78 @@
+# Active le projet Supabase depuis GitHub Actions.
+#
+# Pourquoi ici plutôt qu'en local ? Parce que le schéma doit être appliqué par
+# une machine qui atteint réellement la base. Un poste derrière un réseau
+# filtré (ou un agent d'exécution sans accès sortant vers supabase.co) ne le
+# peut pas ; un runner GitHub, si.
+#
+# Ce qu'il faut avant de lancer :
+#   1. Ajouter le secret de dépôt `SUPABASE_DB_URL` — chaîne de connexion
+#      complète, mot de passe compris (Settings → Secrets and variables →
+#      Actions → New repository secret). Prendre le pooler en mode SESSION
+#      (port 5432), jamais le mode transaction (6543).
+#   2. Facultatif : secret `SUPABASE_DB_CA` contenant l'AC du projet
+#      (`prod-ca-2021.crt`) si la connexion refuse le certificat.
+#
+# Ensuite : Actions → « Supabase — activation » → Run workflow.
+#
+# Ce workflow ne déploie rien et ne modifie aucune variable d'hébergement : il
+# applique les migrations et vérifie que la base est prête. Le secret n'est
+# jamais affiché — GitHub masque les valeurs de secrets dans les journaux.
+name: "Supabase — activation"
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "check = diagnostic en lecture seule ; apply = applique les migrations"
+        type: choice
+        options:
+          - check
+          - apply
+        default: check
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-activation
+  cancel-in-progress: false
+
+jobs:
+  activer:
+    name: Activation du projet Supabase
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Installer les dépendances
+        run: npm ci --no-audit --no-fund
+
+      - name: Vérifier que le secret est présent
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::Le secret SUPABASE_DB_URL n'est pas défini. Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+
+      - name: Diagnostic (lecture seule)
+        if: ${{ inputs.mode == 'check' }}
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+          DATABASE_SSL_CA: ${{ secrets.SUPABASE_DB_CA }}
+        run: npx tsx scripts/supabase-activate.ts --check
+
+      - name: Application des migrations
+        if: ${{ inputs.mode == 'apply' }}
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+          DATABASE_SSL_CA: ${{ secrets.SUPABASE_DB_CA }}
+        run: npx tsx scripts/supabase-activate.ts

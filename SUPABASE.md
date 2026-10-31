@@ -2,6 +2,83 @@
 
 WashPilot CI utilise **Supabase PostgreSQL** comme base distante de production. Le schéma est versionné dans `supabase/migrations/` et s’applique avec les migrations Supabase ; le serveur ne doit pas créer ou modifier silencieusement le schéma au démarrage.
 
+## Projet Lavauto — activer la base
+
+| | |
+| --- | --- |
+| Référence du projet | `venjuyjcyqjntudolgqu` |
+| URL du projet | https://venjuyjcyqjntudolgqu.supabase.co |
+| Région | lue dans le tableau de bord (Supabase → Connect) |
+| Mot de passe de la base | **uniquement** dans Supabase → Project Settings → Database, et dans le `.env` ou le secret d’hébergement |
+
+Un projet Supabase neuf ne contient que les schémas de Supabase Auth/Storage : **les tables de l’application n’existent pas encore**. « Activer Supabase » revient donc à trois gestes.
+
+### 1. Appliquer le schéma (une seule fois)
+
+Trois chemins, selon ce qui est accessible depuis votre poste.
+
+**a. Éditeur SQL du tableau de bord** — le plus simple, aucun outil à installer :
+
+1. Supabase → **SQL Editor** → **New query** ;
+2. coller l’intégralité de `supabase/migrations/20261031000000_initial_schema.sql` ;
+3. **Run**. La migration est idempotente : la rejouer ne casse rien.
+
+**b. GitHub Actions** — pour un poste qui n’atteint pas `supabase.co` :
+
+1. Settings → Secrets and variables → Actions → **New repository secret**, nom `SUPABASE_DB_URL`, valeur = chaîne de connexion complète (mot de passe compris). Secret facultatif `SUPABASE_DB_CA` si le certificat est refusé ;
+2. Actions → **Supabase — activation** → *Run workflow*, mode `check` puis `apply`.
+
+**c. Ligne de commande**, sur une machine qui atteint la base :
+
+```bash
+npm run db:activate:check -- "postgresql://postgres:MOT_DE_PASSE@db.venjuyjcyqjntudolgqu.supabase.co:5432/postgres"
+npm run db:activate       -- "postgresql://postgres:MOT_DE_PASSE@db.venjuyjcyqjntudolgqu.supabase.co:5432/postgres"
+```
+
+La commande applique les migrations manquantes, les inscrit dans
+`supabase_migrations.schema_migrations` (la table lue par la CLI Supabase, qui
+ne les rejouera donc pas), puis vérifie les tables, le rôle `washpilot_app` et
+l’appartenance du compte. `--check` n’écrit rien et sort en code 1 si la base
+n’est pas prête — utilisable tel quel dans une CI.
+
+### 2. Renseigner la connexion
+
+Dans `.env` en local, ou dans les variables du projet sur l’hébergeur :
+
+```dotenv
+DATABASE_URL=postgresql://postgres:MOT_DE_PASSE@db.venjuyjcyqjntudolgqu.supabase.co:5432/postgres
+SEED_DEMO_DATA=false
+APP_URL=https://votre-domaine
+CORS_ORIGINS=https://votre-domaine
+PLATFORM_ADMIN_EMAILS=votre@adresse.ci
+```
+
+Par le pooler (IPv4 obligatoire, réseau filtré), l’utilisateur porte la
+référence du projet et l’hôte dépend de la région :
+
+```dotenv
+DATABASE_URL=postgresql://postgres.venjuyjcyqjntudolgqu:MOT_DE_PASSE@aws-0-<région>.pooler.supabase.com:5432/postgres
+```
+
+Le port **5432** est le mode session ; le **6543** (transaction) casse l’état de
+session dont dépend l’isolation RLS entre stations.
+
+### 3. Démarrer et vérifier
+
+```bash
+npm run dev        # avec DATABASE_URL renseignée dans .env
+curl -s localhost:3000/readyz   # {"status":"ready"}
+```
+
+Les journaux doivent afficher `[db] Connecté à PostgreSQL via DATABASE_URL` et
+`[rls] Isolation multi-station active`. Si le message parle de repli sur la base
+embarquée, la connexion a échoué : le motif est affiché juste avant.
+
+> **Dépôt public.** Le mot de passe de la base ne doit jamais être commité :
+> `DATABASE_URL` vit dans `.env` (ignoré par Git) ou dans un secret d’hôte.
+> Un `.env` poussé par erreur reste dans l’historique — réinitialisez alors le
+> mot de passe dans Supabase plutôt que de réécrire l’historique.
+
 ## Production
 
 1. Utiliser le projet Supabase **Lavauto** dédié à cette application.
