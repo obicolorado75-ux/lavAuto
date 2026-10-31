@@ -1,0 +1,58 @@
+#!/bin/sh
+# commit-msg — validation "sujet-only" (outillage, lot CI/P0)
+#
+# Règle : un message de commit doit être UN SEUL SUJET (une ligne).
+# Rejette les messages multi-lignes (corps/footer), qui cassaient la
+# traçabilité et les outils de parsing du changelog.
+#
+# Format attendu :  type(scope): sujet en impératif (< 72 caractères)
+#   types autorisés : feat fix refactor test docs chore ci security perf style revert
+#
+# Les lignes de commentaire git ("# ...") sont ignorées avant validation.
+
+MSG_FILE="$1"
+
+if [ -z "$MSG_FILE" ] || [ ! -f "$MSG_FILE" ]; then
+    echo "commit-msg: fichier de message introuvable ($MSG_FILE)" >&2
+    exit 1
+fi
+
+# Retirer les commentaires git et les lignes vides en fin de fichier.
+CLEANED=$(sed -e '/^#/d' "$MSG_FILE" | sed -e :a -e '/^\n*$/{$d;N;};/\n$/ba')
+
+# 1) Une seule ligne non vide autorisée.
+LINE_COUNT=$(printf '%s\n' "$CLEANED" | grep -c '[^[:space:]]')
+if [ "$LINE_COUNT" -eq 0 ]; then
+    echo "commit-msg: message de commit vide." >&2
+    exit 1
+fi
+if [ "$LINE_COUNT" -gt 1 ]; then
+    echo "commit-msg: message multi-lignes refusé — un seul SUJET est autorisé." >&2
+    echo "  Attendu : type(scope): sujet court (pas de corps ni de footer)." >&2
+    exit 1
+fi
+
+SUBJECT=$(printf '%s\n' "$CLEANED" | head -n 1)
+
+# 2) Le sujet ne doit pas se terminer par un point (convention conventional-commits).
+case "$SUBJECT" in
+    *. ) echo "commit-msg: le sujet ne doit pas finir par un point." >&2; exit 1 ;;
+esac
+
+# 3) Format type(scope)?: sujet
+if ! printf '%s' "$SUBJECT" | grep -Eq '^(feat|fix|refactor|test|docs|chore|ci|security|perf|style|revert)(\([A-Za-z0-9._/-]+\))?!?: .+'; then
+    echo "commit-msg: sujet invalide :" >&2
+    echo "  \"$SUBJECT\"" >&2
+    echo "  Format attendu : type(scope): sujet (types : feat fix refactor test docs chore ci security perf style revert)" >&2
+    exit 1
+fi
+
+# 4) Longueur maximale du sujet : 72 caractères.
+SUBJ_LEN=$(printf '%s' "$SUBJECT" | wc -c | tr -d ' ')
+if [ "$SUBJ_LEN" -gt 72 ]; then
+    echo "commit-msg: sujet trop long (${SUBJ_LEN} > 72 caractères)." >&2
+    echo "  \"$SUBJECT\"" >&2
+    exit 1
+fi
+
+exit 0

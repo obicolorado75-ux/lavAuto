@@ -19,7 +19,8 @@
     "db:migrate": "supabase db push",
     "db:activate": "tsx scripts/supabase-activate.ts",
     "db:activate:check": "tsx scripts/supabase-activate.ts --check",
-    "db:migration:new": "supabase migration new"
+    "db:migration:new": "supabase migration new",
+    "prepare": "git config core.hooksPath .githooks"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
