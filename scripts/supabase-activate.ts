@@ -271,13 +271,17 @@ async function main(): Promise<number> {
     // reconnaît, donc un `supabase db push` ultérieur ne rejouera pas ce qui a
     // déjà été appliqué ici.
     await client.query(`CREATE SCHEMA IF NOT EXISTS ${MIGRATIONS_SCHEMA}`)
+    // Même forme que la table de la CLI Supabase : si `supabase db push` passe
+    // ensuite, il retrouve ses colonnes (`idempotency_key`, `rollback`) et ne
+    // rejoue pas les migrations déjà inscrites ici.
     await client.query(
       `CREATE TABLE IF NOT EXISTS ${MIGRATIONS_SCHEMA}.${MIGRATIONS_TABLE} (
          version text PRIMARY KEY,
-         name text,
          statements text[],
+         name text,
          created_by text,
-         applied_at timestamptz NOT NULL DEFAULT now()
+         idempotency_key text,
+         rollback text[]
        )`,
     )
 
@@ -341,7 +345,7 @@ async function report(client: pg.Client, migrationsSettled: boolean): Promise<nu
   console.log(`  tables publiques ......... ${text(row.tables)}`)
   console.log(`  politiques RLS ........... ${text(row.policies)}`)
   console.log(`  organizations ............ ${hasTables ? "oui" : "NON"}`)
-  console.log(`  auth_sessions ............ ${Boolean(row.auth_sessions) ? "oui" : "NON"}`)
+  console.log(`  auth_sessions ............ ${row.auth_sessions ? "oui" : "NON"}`)
   console.log(`  rôle washpilot_app ....... ${hasRole ? "oui" : "NON"}`)
   console.log(`  appartenance du compte ... ${isMember ? "oui" : "NON"}`)
   console.log("")

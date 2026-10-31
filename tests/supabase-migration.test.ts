@@ -24,3 +24,17 @@ test("la baseline active les politiques d'isolation des organisations", () => {
   assert.match(migrationSql, /ALTER TABLE organizations ENABLE ROW LEVEL SECURITY/)
   assert.match(migrationSql, /CREATE POLICY org_isolation ON washes/)
 })
+
+test("la migration de durcissement retire les droits publics de Supabase", () => {
+  const hardening = readFileSync(
+    new URL("../supabase/migrations/20261031120000_supabase_hardening.sql", import.meta.url),
+    "utf8",
+  )
+  // `anon` détient par défaut des droits sur tout le schéma public ; sans cette
+  // révocation, la Data API expose des tables que l'application ne sert qu'en
+  // SQL direct.
+  assert.match(hardening, /REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated/)
+  assert.match(hardening, /REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated/)
+  // Rejouable sur un PostgreSQL sans rôles Supabase.
+  assert.match(hardening, /IF EXISTS \(SELECT 1 FROM pg_roles WHERE rolname = 'anon'\)/)
+})

@@ -8,10 +8,30 @@ WashPilot CI utilise **Supabase PostgreSQL** comme base distante de production. 
 | --- | --- |
 | Référence du projet | `venjuyjcyqjntudolgqu` |
 | URL du projet | https://venjuyjcyqjntudolgqu.supabase.co |
-| Région | lue dans le tableau de bord (Supabase → Connect) |
+| Région | `eu-west-3` (Paris) |
 | Mot de passe de la base | **uniquement** dans Supabase → Project Settings → Database, et dans le `.env` ou le secret d’hébergement |
 
-Un projet Supabase neuf ne contient que les schémas de Supabase Auth/Storage : **les tables de l’application n’existent pas encore**. « Activer Supabase » revient donc à trois gestes.
+### État au 31 octobre 2026
+
+Le projet `venjuyjcyqjntudolgqu` (région `eu-west-3`, PostgreSQL 17.11) est **activé** : les deux migrations sont appliquées et inscrites dans `supabase_migrations.schema_migrations`. Contrôle effectué après application :
+
+| | |
+| --- | --- |
+| Tables dans `public` | 57 (toutes avec RLS active) |
+| Politiques `org_isolation` | 43 |
+| Index / contraintes | 148 / 241 |
+| Rôle `washpilot_app` | créé, `postgres` en est membre |
+| Forfaits amorcés | `starter`, `pro`, `business` |
+| Empreinte des colonnes | `487e615e8bc00c0f4439789ea491cc6d` — identique à la base de référence |
+| Empreinte des contraintes | `6ff022088fd0da4927db99487b2cf5ea` — identique à la base de référence |
+
+Les empreintes sont comparées à celles d’une base neuve créée en local à partir des mêmes fichiers : elles prouvent que le schéma distant est **exactement** celui du dépôt, colonne par colonne.
+
+La seconde migration (`20261031120000_supabase_hardening.sql`) retire aux rôles `anon` et `authenticated` — ceux de la Data API, joignables avec la clé publique — tout droit sur le schéma `public`. L’application n’utilise pas PostgREST : elle passe par `pg` et par les politiques RLS, qui reposent sur `app.current_org`, une variable qu’une connexion HTTP ne peut pas poser. `service_role` et le propriétaire des tables conservent leurs droits.
+
+Il reste **une** chose à faire côté exploitation : renseigner `DATABASE_URL` (mot de passe compris) là où tourne l’API. Voir §2.
+
+Un projet Supabase neuf ne contient que les schémas de Supabase Auth/Storage : **les tables de l’application n’existent pas encore**. « Activer Supabase » revient donc à trois gestes — déjà faits pour ce projet, et reproductibles pour un autre.
 
 ### 1. Appliquer le schéma (une seule fois)
 
