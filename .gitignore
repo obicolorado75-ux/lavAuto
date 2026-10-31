@@ -1,7 +1,6 @@
 # Environnement / secrets — ne jamais committer
 .env
-.env.backup
-.env.backup.*
+.env.backup*
 backend/.env
 
 # Dépendances
