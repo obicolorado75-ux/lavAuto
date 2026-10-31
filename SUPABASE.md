@@ -19,11 +19,11 @@ Le projet `venjuyjcyqjntudolgqu` (région `eu-west-3`, PostgreSQL 17.11) est **a
 | --- | --- |
 | Tables dans `public` | 58 (toutes avec RLS active) |
 | Politiques `org_isolation` | 44 |
-| Index / contraintes | 149 / 246 (clés, unicité et CHECK) |
+| Index / contraintes | 149 / 247 (clés, unicité et CHECK) |
 | Rôle `washpilot_app` | créé, `postgres` en est membre |
 | Forfaits amorcés | `starter`, `pro`, `business` |
-| Empreinte des colonnes | `f53e047559a5c0d18f2be095df6d40f1` — identique à la base de référence |
-| Empreinte des contraintes | `36190cb92cf5a69e0ce6762d98720e13` en local ; `6b40286800fe27fc8028b543443ae766` à distance — même contenu, noms générés différents (voir ci-dessous) |
+| Empreinte des colonnes | `7ddc4229a7da1c17284d20dd424e433b` — identique à la base de référence |
+| Empreinte des contraintes | `516248631aecbbcb1fdef18037b22521` en local ; `1091fa8308de644ba792a25ad535182b` à distance — même contenu, noms générés différents (voir ci-dessous) |
 
 Les empreintes sont comparées à celles d’une base neuve créée en local à partir des mêmes fichiers : elles prouvent que le schéma distant est **exactement** celui du dépôt, colonne par colonne. Elles se recalculent avec :
 
@@ -35,7 +35,7 @@ SELECT md5(string_agg(c.table_name||'.'||c.column_name||':'||c.data_type||':'||c
 
 La seule différence connue porte sur les **noms** des contraintes `NOT NULL` de `organization_branding` : lorsqu’une table est créée par une requête isolée dans PostgreSQL 17, ces contraintes reçoivent un nom généré (`2200_19026_1_not_null`) au lieu du nom conventionnel `organization_branding_organization_id_not_null`. Le nombre (7) et la nature des contraintes sont identiques ; aucun contrôle n’est perdu.
 
-La troisième migration (`20261031160000_organization_branding.sql`) crée la table du logo de la station et l’ajoute aux tables isolées par `org_isolation`. Le logo est stocké en base (`bytea`, 300 Ko au plus) plutôt que dans un compartiment objet : un seul fournisseur, une seule sauvegarde, et l’export complet reste un unique fichier JSON.
+La troisième migration (`20261031160000_organization_branding.sql`) crée la table de l’identité visuelle de la station — logo et couleur — et l’ajoute aux tables isolées par `org_isolation`. Le logo est stocké en base (`bytea`, 300 Ko au plus) plutôt que dans un compartiment objet : un seul fournisseur, une seule sauvegarde, et l’export complet reste un unique fichier JSON. La couleur (`brand_color`) est bornée par un CHECK aux huit palettes de `src/lib/palette.ts` : une teinte libre produirait des contrastes que personne n’aurait vérifiés.
 
 La seconde migration (`20261031120000_supabase_hardening.sql`) retire aux rôles `anon` et `authenticated` — ceux de la Data API, joignables avec la clé publique — tout droit sur le schéma `public`. L’application n’utilise pas PostgREST : elle passe par `pg` et par les politiques RLS, qui reposent sur `app.current_org`, une variable qu’une connexion HTTP ne peut pas poser. `service_role` et le propriétaire des tables conservent leurs droits.
 

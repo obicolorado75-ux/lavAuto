@@ -215,7 +215,19 @@ export const COLOR_THEMES: ReadonlyArray<ColorThemeOption> = [
 export const DEFAULT_COLOR_THEME: ColorTheme = "bleu";
 
 /** Clé `localStorage`. ⚠️ Dupliquée dans le script inline de `index.html`. */
-export const COLOR_THEME_STORAGE_KEY = "washpilot-color-theme";
+export const COLOR_THEME_STORAGE_KEY = "washpilot-color-theme"
+
+/**
+ * Clé du **thème de la station** mis en cache.
+ *
+ * Il vient du serveur, donc après le premier rendu. Le cacher permet au script
+ * inline de `index.html` de l'appliquer avant la peinture, comme le choix
+ * personnel : sans cela, chaque ouverture de l'application afficherait une
+ * fraction de seconde de bleu WashPilot avant de basculer sur la couleur de la
+ * station. Le cache n'est qu'un raccourci d'affichage — la valeur de référence
+ * reste celle de la base, relue à chaque démarrage.
+ */
+export const STATION_COLOR_THEME_STORAGE_KEY = "washpilot-station-color-theme";
 
 export function isColorTheme(value: unknown): value is ColorTheme {
   return COLOR_THEMES.some((theme) => theme.value === value);
@@ -237,11 +249,21 @@ export function getColorTheme(value: unknown): ColorThemeOption {
 export function readStoredColorTheme(
   fallback: ColorTheme = DEFAULT_COLOR_THEME,
 ): ColorTheme {
+  return readStoredColorThemeOrNull() ?? fallback;
+}
+
+/**
+ * Le choix **personnel**, ou `null` si l'utilisateur n'en a pas exprimé.
+ *
+ * La distinction compte depuis que la station a son propre thème : « aucun
+ * choix » ne veut plus dire « bleu », mais « suivre la station ».
+ */
+export function readStoredColorThemeOrNull(): ColorTheme | null {
   try {
     const stored = window.localStorage.getItem(COLOR_THEME_STORAGE_KEY);
-    return isColorTheme(stored) ? stored : fallback;
+    return isColorTheme(stored) ? stored : null;
   } catch {
-    return fallback;
+    return null;
   }
 }
 
@@ -251,6 +273,42 @@ export function storeColorTheme(theme: ColorTheme): void {
   } catch {
     // Préférence non persistée : le défaut revient au prochain chargement.
   }
+}
+
+/** Efface le choix personnel : l'application reprend le thème de la station. */
+export function clearStoredColorTheme(): void {
+  try {
+    window.localStorage.removeItem(COLOR_THEME_STORAGE_KEY);
+  } catch {
+    // Rien à effacer si le stockage est inaccessible.
+  }
+}
+
+export interface ResolvedColorTheme {
+  theme: ColorTheme
+  /** D'où vient la couleur : choix personnel, station, ou valeur par défaut. */
+  source: "user" | "station" | "default"
+}
+
+/**
+ * Quelle couleur appliquer, et pourquoi.
+ *
+ * Trois niveaux, du plus précis au plus général : le choix de la personne
+ * (elle a cliqué, on le respecte), celui de sa station (l'identité de la
+ * maison), puis le bleu WashPilot. Une station qui impose sa couleur à tout le
+ * monde retirerait un réglage existant ; l'inverse — ignorer le choix
+ * personnel — reviendrait à ne pas enregistrer ce que l'utilisateur vient de
+ * cliquer.
+ *
+ * Fonction pure : testable sans DOM.
+ */
+export function resolveColorTheme(
+  userChoice: ColorTheme | null,
+  stationTheme: ColorTheme | null,
+): ResolvedColorTheme {
+  if (userChoice) return { theme: userChoice, source: "user" }
+  if (stationTheme) return { theme: stationTheme, source: "station" }
+  return { theme: DEFAULT_COLOR_THEME, source: "default" }
 }
 
 /**

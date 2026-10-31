@@ -15,6 +15,9 @@ CREATE TABLE IF NOT EXISTS organization_branding (
  logo_byte_size integer,
  logo_data bytea,
  logo_updated_at timestamptz,
+ -- Couleur d'action choisie par la station (un des thèmes de src/lib/palette.ts).
+ -- NULL : l'application garde le bleu WashPilot.
+ brand_color text CHECK (brand_color IS NULL OR brand_color IN ('bleu','indigo','violet','teal','emeraude','ambre','rose','ardoise')),
  -- Le logo, son type et sa taille sont indissociables : un octet sans type ne
  -- peut pas être servi avec un Content-Type honnête, un type sans octet ne
  -- s'affiche pas, et une taille absente rendrait la limite invérifiable.
@@ -26,6 +29,11 @@ CREATE TABLE IF NOT EXISTS organization_branding (
  updated_by uuid REFERENCES users(id) ON DELETE SET NULL,
  updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Bases où la table a été créée avant la couleur : la colonne et sa contrainte
+-- arrivent ici. Sur une base neuve, la ligne ne fait rien.
+ALTER TABLE organization_branding ADD COLUMN IF NOT EXISTS brand_color text
+ CHECK (brand_color IS NULL OR brand_color IN ('bleu','indigo','violet','teal','emeraude','ambre','rose','ardoise'));
 
 -- Isolation multi-station : même politique `org_isolation` que les autres
 -- tables portant leur organisation.

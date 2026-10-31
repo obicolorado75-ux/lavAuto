@@ -1,10 +1,11 @@
 "use client"
 
 import * as React from "react"
-import { ImagePlus, Loader2, Lock, Palette, RotateCcw, Trash2, Upload } from "lucide-react"
+import { ImagePlus, Loader2, Lock, Palette, Paintbrush, RotateCcw, Trash2, Upload } from "lucide-react"
 
 import { BaseLayout } from "@/components/layouts/base-layout"
 import { BrandMark } from "@/components/brand"
+import { StationColorPicker } from "@/components/branding/station-color-picker"
 import { BlockedReason } from "@/components/access/blocked-reason"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -16,6 +17,7 @@ import {
   prepareBrandLogo,
   type BrandLogoDraft,
 } from "@/lib/brand-logo"
+import { getColorTheme, type ColorTheme } from "@/lib/palette"
 import { useMutation } from "@/lib/use-mutation"
 import { usePermission } from "@/lib/permissions"
 
@@ -35,7 +37,7 @@ function FrenchDate({ value }: { value: string | null | undefined }) {
 
 export default function BrandingSettingsPage() {
   const manage = usePermission("settings:manage")
-  const { logo, image_url, status, error: loadError } = useBranding()
+  const { logo, image_url, color_theme, status, error: loadError } = useBranding()
   const save = useMutation()
 
   const inputRef = React.useRef<HTMLInputElement>(null)
@@ -43,10 +45,14 @@ export default function BrandingSettingsPage() {
   const [preparing, setPreparing] = React.useState(false)
   const [localError, setLocalError] = React.useState<string | null>(null)
   const [dragging, setDragging] = React.useState(false)
+  // Pastille en cours d'enregistrement : `null` quand rien n'est en vol, la
+  // valeur choisie sinon (« reset » pour le retour au bleu).
+  const [pendingTheme, setPendingTheme] = React.useState<ColorTheme | null | "reset">(null)
 
   const busy = save.pending || preparing
   const locked = !manage.loading && !manage.allowed
   const message = localError ?? save.error ?? null
+  const themeLabel = color_theme ? getColorTheme(color_theme).label : null
 
   // L'aperçu suit la sélection en cours, sinon le logo enregistré, sinon la
   // marque par défaut : on ne montre jamais un cadre vide.
@@ -99,10 +105,25 @@ export default function BrandingSettingsPage() {
     }
   }
 
+  async function chooseTheme(theme: ColorTheme | null) {
+    setPendingTheme(theme ?? "reset")
+    const outcome = await save.run({
+      url: "/api/v1/branding/theme",
+      method: "PUT",
+      body: { color_theme: theme },
+      success: theme
+        ? `Couleur enregistrée : l'application adopte « ${getColorTheme(theme).label} ».`
+        : "Retour au bleu WashPilot : la couleur de la station est effacée.",
+      failure: "La couleur n'a pas pu être enregistrée.",
+    })
+    setPendingTheme(null)
+    if (outcome.ok) await loadBranding(true)
+  }
+
   return (
     <BaseLayout
       title="Identité visuelle"
-      description="Téléversez le logo de votre station : il remplace la marque WashPilot CI dans la barre latérale et l’en-tête de l’application."
+      description="Logo et couleur de votre station : ils remplacent la marque WashPilot CI dans la barre latérale, l’en-tête et les couleurs de l’application."
     >
       <div className="flex flex-col gap-6 px-4 lg:px-6">
         <Card>
@@ -115,7 +136,7 @@ export default function BrandingSettingsPage() {
             </CardTitle>
             <CardDescription>
               Une seule image suffit : elle devient l’identité de votre station partout où la
-              marque apparaissait jusqu’ici.
+              marque apparaissait jusqu’ici, jusqu’en tête du reçu imprimé.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-6">
@@ -144,8 +165,10 @@ export default function BrandingSettingsPage() {
                   <h3 className="text-sm font-medium">Téléverser une image</h3>
                   <p className="mt-1 text-sm text-muted-foreground">
                     PNG, JPEG ou WebP · {formatBytes(MAX_BRAND_LOGO_BYTES)} maximum. Le fond
-                    transparent (PNG) est conseillé : il s’intègre proprement au fond bleu nuit.
-                    Les grandes images sont réduites automatiquement avant l’envoi.
+                    transparent (PNG) est conseillé. Le logo s’affiche sur fond bleu nuit (barre
+                    latérale) et sur papier blanc (reçu) : des traits de couleur moyenne, ni tout
+                    blancs ni tout noirs, restent lisibles sur les deux. Les grandes images sont
+                    réduites automatiquement avant l’envoi.
                   </p>
                 </div>
 
@@ -248,21 +271,54 @@ export default function BrandingSettingsPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Lock className="size-5" aria-hidden="true" /> Où le logo apparaît
+              <Paintbrush className="size-5" aria-hidden="true" /> Couleur de la station
+              {themeLabel
+                ? <Badge variant="success-light">{themeLabel}</Badge>
+                : <Badge variant="secondary">Bleu WashPilot</Badge>}
             </CardTitle>
             <CardDescription>
-              Le logo est propre à votre organisation : toutes vos stations et tous vos membres le voient.
+              La couleur des boutons, des liens, des accents et des états de l’application.
+              Huit palettes vérifiées pour rester lisibles en mode clair comme en mode sombre.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <StationColorPicker
+              value={color_theme}
+              onChange={(theme) => void chooseTheme(theme)}
+              disabled={locked || busy}
+              pending={pendingTheme}
+            />
+            <p className="text-sm text-muted-foreground">
+              La couleur s’applique à tous les membres de la station. Celui qui a choisi sa propre
+              couleur dans <strong>Paramètres › Compte › Apparence</strong> garde la sienne — c’est un
+              choix personnel, sur son appareil — mais peut revenir à celle de la station en un clic.
+            </p>
+            <BlockedReason
+              reason={locked ? manage.reason ?? "Seul le propriétaire peut changer la couleur de la station." : null}
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Lock className="size-5" aria-hidden="true" /> Où l’identité apparaît
+            </CardTitle>
+            <CardDescription>
+              L’identité est propre à votre organisation : toutes vos stations et tous vos membres
+              la voient.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <ul className="flex list-disc flex-col gap-1.5 pl-5 text-sm text-muted-foreground">
               <li>La barre latérale, à côté du nom de la station (et en version réduite quand elle est repliée).</li>
               <li>L’en-tête sur téléphone, où la barre latérale est fermée.</li>
-              <li>Chaque membre le voit dès son prochain chargement de page ; aucun réglage de son côté.</li>
+              <li>La tête du <strong>reçu de lavage</strong> imprimé, au-dessus du nom de la station.</li>
+              <li>Les couleurs des boutons, liens, badges et graphiques, pour qui n’a pas choisi les siennes.</li>
             </ul>
             <p className="mt-4 text-sm text-muted-foreground">
               Tant qu’aucun logo n’est téléversé, la marque <strong>WashPilot CI</strong> reste affichée.
-              Retirer le logo ramène à cette marque, sans rien perdre d’autre.
+              Retirer le logo ramène à cette marque, sans rien perdre d’autre — ni la couleur.
             </p>
           </CardContent>
         </Card>

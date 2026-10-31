@@ -90,8 +90,11 @@
               dark: { primary: "oklch(0.85 0.02 250)", accent: "oklch(0.3 0.01 250)", success: "oklch(0.78 0.14 152)", info: "oklch(0.75 0.05 250)" },
             },
           }
-          var colorTheme = window.localStorage.getItem("washpilot-color-theme")
-          var chosen = palette[colorTheme] ? colorTheme : "bleu"
+          // 1. le choix personnel ; 2. le thème de la station (cache du dernier
+          // chargement, la valeur de référence restant en base) ; 3. le défaut.
+          var stored = window.localStorage.getItem("washpilot-color-theme")
+          var station = window.localStorage.getItem("washpilot-station-color-theme")
+          var chosen = palette[stored] ? stored : palette[station] ? station : "bleu"
           var vars = palette[chosen][resolved]
           root.dataset.colorTheme = chosen
           root.style.setProperty("--primary", vars.primary)

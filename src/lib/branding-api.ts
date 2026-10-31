@@ -24,6 +24,8 @@
 import * as React from "react"
 
 import { apiErrorMessage, apiFetch } from "@/lib/api"
+import type { ColorTheme } from "@/lib/palette"
+import { setStationColorTheme } from "@/lib/station-theme"
 
 export interface BrandLogoMeta {
   mime_type: string
@@ -34,6 +36,8 @@ export interface BrandLogoMeta {
 
 interface BrandingPayload {
   logo: BrandLogoMeta | null
+  /** Thème couleur de la station, ou `null` si elle n'en a pas choisi. */
+  color_theme: ColorTheme | null
 }
 
 export type BrandingStatus = "idle" | "loading" | "ready" | "error"
@@ -43,10 +47,12 @@ export interface BrandingState {
   logo: BrandLogoMeta | null
   /** URL d'objet du logo téléversé ; `null` = pas de logo personnalisé. */
   image_url: string | null
+  /** Couleur d'action choisie par la station ; `null` = palette par défaut. */
+  color_theme: ColorTheme | null
   error: string | null
 }
 
-const EMPTY: BrandingState = { status: "idle", logo: null, image_url: null, error: null }
+const EMPTY: BrandingState = { status: "idle", logo: null, image_url: null, color_theme: null, error: null }
 
 /** Au-delà, on relit : le logo a pu changer dans un autre onglet. */
 const STALE_MS = 60_000
@@ -86,10 +92,14 @@ async function readBranding(): Promise<void> {
     const payload = (await response.json()) as BrandingPayload
     if (ticket !== generation) return
 
+    // La couleur est publiée même sans logo : c'est elle qui peint les
+    // boutons et les accents de toute l'application.
+    setStationColorTheme(payload.color_theme ?? null)
+
     if (!payload.logo) {
       swapImageUrl(null)
       lastLoadedAt = Date.now()
-      emit({ status: "ready", logo: null, image_url: null, error: null })
+      emit({ status: "ready", logo: null, image_url: null, color_theme: payload.color_theme ?? null, error: null })
       return
     }
 
@@ -110,7 +120,7 @@ async function readBranding(): Promise<void> {
     const url = URL.createObjectURL(blob)
     swapImageUrl(url)
     lastLoadedAt = Date.now()
-    emit({ status: "ready", logo: payload.logo, image_url: url, error: null })
+    emit({ status: "ready", logo: payload.logo, image_url: url, color_theme: payload.color_theme ?? null, error: null })
   } catch (error) {
     if (ticket !== generation) return
     emit({
@@ -119,6 +129,7 @@ async function readBranding(): Promise<void> {
       // On conserve l'image déjà affichée : mieux vaut un logo d'il y a cinq
       // minutes qu'un logo qui disparaît parce que le réseau a hoqueté.
       image_url: state.image_url,
+      color_theme: state.color_theme,
       error: error instanceof Error ? error.message : "Impossible de charger le logo de la station.",
     })
   } finally {
@@ -145,27 +156,10 @@ export function resetBranding() {
   inflight = null
   lastLoadedAt = 0
   swapImageUrl(null)
+  // La couleur suit : la station suivante ne doit pas hériter du vert de la
+  // précédente, même une fraction de seconde.
+  setStationColorTheme(null)
   emit(EMPTY)
-}
-
-/** Téléverse un logo préparé par `prepareBrandLogo`. Lève une `Error` en français en cas d'échec. */
-export async function uploadBrandLogo(draft: {
-  mime_type: string
-  data_base64: string
-}): Promise<void> {
-  const response = await apiFetch("/api/v1/branding/logo", {
-    method: "PUT",
-    body: JSON.stringify({ mime_type: draft.mime_type, data_base64: draft.data_base64 }),
-  })
-  if (!response.ok) throw new Error(await apiErrorMessage(response))
-  await loadBranding(true)
-}
-
-/** Retire le logo personnalisé : retour à la marque WashPilot CI. */
-export async function removeBrandLogo(): Promise<void> {
-  const response = await apiFetch("/api/v1/branding/logo", { method: "DELETE" })
-  if (!response.ok) throw new Error(await apiErrorMessage(response))
-  await loadBranding(true)
 }
 
 /**

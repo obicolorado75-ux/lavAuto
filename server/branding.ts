@@ -1,5 +1,5 @@
 /**
- * Identité visuelle de la station — le logo téléversé depuis Paramètres.
+ * Identité visuelle de la station — logo et couleur, réglés depuis Paramètres.
  *
  * ## Pourquoi le logo vit dans la base
  *
@@ -23,16 +23,26 @@
  * logo, c'est une photo qu'on n'a pas redimensionnée — le navigateur le fait
  * avant l'envoi (voir `src/lib/brand-logo.ts`), et le serveur le vérifie.
  *
+ * ## La couleur
+ *
+ * La station choisit l'une des huit palettes de `src/lib/palette.ts` — jamais
+ * une teinte libre. Ces palettes ont été calculées pour que le texte posé
+ * dessus reste lisible dans les deux modes (voir l'en-tête de ce fichier-là) :
+ * accepter un `#ffcc00` arbitraire produirait un écran jaune sur blanc que
+ * personne n'aurait vérifié. Le CHECK de la table porte la même liste, et un
+ * test compare les trois (SQL, serveur, client).
+ *
  * ## Qui peut faire quoi
  *
- * Lire le logo : tout membre connecté — c'est ce qui s'affiche dans sa barre
- * latérale. Le changer : `settings:manage`, réservée au propriétaire, comme
- * tout ce qui touche à l'identité de la station.
+ * Lire le logo et la couleur : tout membre connecté — c'est ce qui s'affiche
+ * dans sa barre latérale et dans les couleurs de son application. Les changer :
+ * `settings:manage`, réservée au propriétaire, comme tout ce qui touche à
+ * l'identité de la station.
  */
 
 import { Router } from "express"
 import { z } from "zod"
-import type { Pool } from "pg"
+import type { Pool, PoolClient } from "pg"
 import { getPool } from "./db.ts"
 import { HttpError } from "./auth.ts"
 import { asyncRoute, body, requirePermission, tenant } from "./http.ts"
@@ -43,6 +53,26 @@ export type BrandLogoMimeType = (typeof BRAND_LOGO_MIME_TYPES)[number]
 
 /** Plafond en octets, identique au CHECK de `organization_branding`. */
 export const BRAND_LOGO_MAX_BYTES = 300_000
+
+/**
+ * Palettes qu'une station peut adopter.
+ *
+ * ⚠️ Cette liste est dupliquée à trois endroits qui doivent rester identiques :
+ * ici, le CHECK de `organization_branding` (server/db.ts), et `COLOR_THEMES`
+ * (src/lib/palette.ts). `tests/branding.test.ts` compare les trois — ajouter
+ * une palette sans migration fait échouer la suite.
+ */
+export const STATION_COLOR_THEMES = [
+  "bleu",
+  "indigo",
+  "violet",
+  "teal",
+  "emeraude",
+  "ambre",
+  "rose",
+  "ardoise",
+] as const
+export type StationColorTheme = (typeof STATION_COLOR_THEMES)[number]
 
 export interface BrandLogoInput {
   mime_type: BrandLogoMimeType
@@ -116,10 +146,19 @@ const logoValidator = z
   })
   .strip()
 
+const themeValidator = z
+  .object({
+    color_theme: z
+      .enum(STATION_COLOR_THEMES)
+      .nullable(),
+  })
+  .strip()
+
 interface BrandingRow {
   logo_mime_type: string | null
   logo_byte_size: number | null
   logo_updated_at: Date | null
+  brand_color: string | null
 }
 
 export interface BrandLogoSummary {
@@ -154,23 +193,27 @@ function db(): Pool {
   return pool
 }
 
+const SELECT_BRANDING = `SELECT logo_mime_type, logo_byte_size, logo_updated_at, brand_color
+                           FROM organization_branding WHERE organization_id = $1::uuid`
+
+async function readBrandingRow(organizationId: string): Promise<BrandingRow | undefined> {
+  const q = await db().query<BrandingRow>(SELECT_BRANDING, [organizationId])
+  return q.rows[0]
+}
+
 export function createBrandingRouter() {
   const r = Router()
 
   // GET /api/v1/branding — l'identité de la station, sans les octets.
   //
-  // Lisible par tout membre : c'est ce qui décore sa barre latérale et son
-  // reçu. Aucune donnée personnelle, aucun réglage sensible.
+  // Lisible par tout membre : c'est ce qui décore sa barre latérale et colore
+  // son application. Aucune donnée personnelle, aucun réglage sensible.
   r.get(
     "/branding",
     asyncRoute(async (req, res) => {
       const t = tenant(req)
-      const q = await db().query<BrandingRow>(
-        `SELECT logo_mime_type, logo_byte_size, logo_updated_at
-           FROM organization_branding WHERE organization_id = $1::uuid`,
-        [t.organizationId],
-      )
-      res.json({ logo: summarise(q.rows[0]) })
+      const row = await readBrandingRow(t.organizationId)
+      res.json({ logo: summarise(row), color_theme: row?.brand_color ?? null })
     }),
   )
 
@@ -229,7 +272,7 @@ export function createBrandingRouter() {
            logo_updated_at = now(),
            updated_by = EXCLUDED.updated_by,
            updated_at = now()
-         RETURNING logo_mime_type, logo_byte_size, logo_updated_at`,
+         RETURNING logo_mime_type, logo_byte_size, logo_updated_at, brand_color`,
         [t.organizationId, input.mime_type, data.length, data, t.userId],
       )
       await pool.query(
@@ -242,24 +285,84 @@ export function createBrandingRouter() {
   )
 
   // DELETE /api/v1/branding/logo — revient à l'identité par défaut.
+  //
+  // La ligne n'est supprimée que si elle ne porte plus rien : un logo retiré
+  // ne doit pas emporter la couleur de la station avec lui.
   r.delete(
     "/branding/logo",
     requirePermission("settings:manage"),
     asyncRoute(async (req, res) => {
       const t = tenant(req)
       const pool = db()
-      const q = await pool.query(
-        "DELETE FROM organization_branding WHERE organization_id = $1::uuid",
-        [t.organizationId],
-      )
-      if (q.rowCount) {
-        await pool.query(
-          `INSERT INTO audit_logs(organization_id, actor_user_id, action, entity_type, entity_id)
-           VALUES($1::uuid, $2::uuid, 'branding.logo_removed', 'organization', $1::text)`,
-          [t.organizationId, t.userId],
+      const client: PoolClient = await pool.connect()
+      try {
+        await client.query("BEGIN")
+        const updated = await client.query(
+          `UPDATE organization_branding
+              SET logo_mime_type = NULL, logo_byte_size = NULL, logo_data = NULL,
+                  logo_updated_at = NULL, updated_at = now()
+            WHERE organization_id = $1::uuid AND logo_data IS NOT NULL`,
+          [t.organizationId],
         )
+        await client.query(
+          "DELETE FROM organization_branding WHERE organization_id = $1::uuid AND brand_color IS NULL",
+          [t.organizationId],
+        )
+        if (updated.rowCount) {
+          await client.query(
+            `INSERT INTO audit_logs(organization_id, actor_user_id, action, entity_type, entity_id)
+             VALUES($1::uuid, $2::uuid, 'branding.logo_removed', 'organization', $1::text)`,
+            [t.organizationId, t.userId],
+          )
+        }
+        await client.query("COMMIT")
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => undefined)
+        throw error
+      } finally {
+        client.release()
       }
       res.status(200).json({ logo: null })
+    }),
+  )
+
+  // PUT /api/v1/branding/theme — la couleur de la station.
+  //
+  // `color_theme: null` revient au bleu WashPilot. Une seule route pour poser
+  // et pour retirer : deux routes voudraient dire deux façons d'écrire la même
+  // colonne, donc deux occasions de diverger.
+  r.put(
+    "/branding/theme",
+    requirePermission("settings:manage"),
+    asyncRoute(async (req, res) => {
+      const t = tenant(req)
+      const input = body(themeValidator, req.body)
+      const pool = db()
+      const q = await pool.query<{ brand_color: string | null }>(
+        `INSERT INTO organization_branding(organization_id, brand_color, updated_by, updated_at)
+         VALUES($1::uuid, $2, $3::uuid, now())
+         ON CONFLICT (organization_id) DO UPDATE SET
+           brand_color = EXCLUDED.brand_color,
+           updated_by = EXCLUDED.updated_by,
+           updated_at = now()
+         RETURNING brand_color`,
+        [t.organizationId, input.color_theme, t.userId],
+      )
+      // Une ligne qui ne porte plus rien n'a pas de raison d'exister : sans
+      // cela, le simple fait d'ouvrir le sélecteur puis de revenir au défaut
+      // laissait une coquille vide dans la base et dans la sauvegarde.
+      if (!input.color_theme) {
+        await pool.query(
+          "DELETE FROM organization_branding WHERE organization_id = $1::uuid AND brand_color IS NULL AND logo_data IS NULL",
+          [t.organizationId],
+        )
+      }
+      await pool.query(
+        `INSERT INTO audit_logs(organization_id, actor_user_id, action, entity_type, entity_id, metadata)
+         VALUES($1::uuid, $2::uuid, 'branding.color_updated', 'organization', $1::text, $3::jsonb)`,
+        [t.organizationId, t.userId, JSON.stringify({ color_theme: input.color_theme })],
+      )
+      res.status(200).json({ color_theme: q.rows[0]?.brand_color ?? null })
     }),
   )
 

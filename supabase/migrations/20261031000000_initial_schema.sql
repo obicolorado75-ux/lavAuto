@@ -95,6 +95,9 @@ CREATE TABLE IF NOT EXISTS organization_branding (
  logo_byte_size integer,
  logo_data bytea,
  logo_updated_at timestamptz,
+ -- Couleur d'action choisie par la station (un des thèmes de src/lib/palette.ts).
+ -- NULL : l'application garde le bleu WashPilot.
+ brand_color text CHECK (brand_color IS NULL OR brand_color IN ('bleu','indigo','violet','teal','emeraude','ambre','rose','ardoise')),
  -- Le logo, son type et sa taille sont indissociables : un octet sans type ne
  -- peut pas être servi avec un Content-Type honnête, un type sans octet ne
  -- s'affiche pas, et une taille absente rendrait la limite invérifiable.
@@ -106,6 +109,8 @@ CREATE TABLE IF NOT EXISTS organization_branding (
  updated_by uuid REFERENCES users(id) ON DELETE SET NULL,
  updated_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE organization_branding ADD COLUMN IF NOT EXISTS brand_color text
+ CHECK (brand_color IS NULL OR brand_color IN ('bleu','indigo','violet','teal','emeraude','ambre','rose','ardoise'));
 CREATE TABLE IF NOT EXISTS onboarding_progress (
   organization_id uuid PRIMARY KEY REFERENCES organizations(id), current_stage text NOT NULL DEFAULT 'station',
   station_data jsonb, services_data jsonb, workers_data jsonb, plan_code text, draft boolean NOT NULL DEFAULT false,

@@ -7,8 +7,11 @@ import {
   COLOR_THEMES,
   COLOR_VARS,
   DEFAULT_COLOR_THEME,
+  STATION_COLOR_THEME_STORAGE_KEY,
   getColorTheme,
   isColorTheme,
+  readStoredColorThemeOrNull,
+  resolveColorTheme,
 } from "../src/lib/palette.ts";
 
 /**
@@ -126,5 +129,49 @@ describe("thème couleur — feuille de style", () => {
       /--primary-foreground: color-mix\(in oklch/.test(String(block)),
       "la vitrine doit recalculer --primary-foreground pour le mode clair",
     );
+  });
+});
+
+describe("thème couleur — priorité entre la personne et la station", () => {
+  it("le choix personnel l'emporte sur celui de la station", () => {
+    assert.deepEqual(resolveColorTheme("rose", "emeraude"), { theme: "rose", source: "user" });
+  });
+
+  it("sans choix personnel, la station décide", () => {
+    assert.deepEqual(resolveColorTheme(null, "emeraude"), { theme: "emeraude", source: "station" });
+  });
+
+  it("sans choix ni station, le bleu WashPilot reste la référence", () => {
+    assert.deepEqual(resolveColorTheme(null, null), {
+      theme: DEFAULT_COLOR_THEME,
+      source: "default",
+    });
+  });
+
+  it("sans stockage accessible, aucun choix personnel n'est inventé", () => {
+    // En dehors du navigateur, `localStorage` n'existe pas : la fonction doit
+    // rendre `null` (donc « suivre la station ») et non un thème par défaut,
+    // qui écraserait la couleur choisie par la station.
+    assert.equal(readStoredColorThemeOrNull(), null);
+  });
+
+  it("index.html lit le cache du thème de la station avant le bundle", () => {
+    assert.equal(STATION_COLOR_THEME_STORAGE_KEY, "washpilot-station-color-theme");
+    const script = indexHtml.indexOf(`getItem("${STATION_COLOR_THEME_STORAGE_KEY}")`);
+    const bundle = indexHtml.indexOf("/src/main.tsx");
+    assert.ok(script > -1, "le script inline doit lire le cache du thème de la station");
+    assert.ok(script < bundle, "sinon la couleur de la station arrive après la première peinture");
+    // Le choix personnel doit être consulté AVANT la station : l'ordre des
+    // deux `getItem` décide de la priorité à l'écran.
+    assert.ok(
+      indexHtml.indexOf('getItem("washpilot-color-theme")') <
+        indexHtml.indexOf(`getItem("${STATION_COLOR_THEME_STORAGE_KEY}")`),
+    );
+  });
+
+  it("la couleur de la station vient du serveur, pas d'un réglage local", () => {
+    const api = readFileSync(join(root, "src/lib/branding-api.ts"), "utf8");
+    assert.match(api, /setStationColorTheme\(payload\.color_theme/);
+    assert.match(api, /setStationColorTheme\(null\)/, "la déconnexion doit oublier la couleur");
   });
 });

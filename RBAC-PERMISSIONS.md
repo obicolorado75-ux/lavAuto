@@ -325,11 +325,13 @@ Ce que chaque rôle voit aujourd'hui :
 | Identité visuelle | `settings:manage` | ✓ | — | — | — |
 | Paramètres | libre | ✓ | ✓ | ✓ | ✓ |
 
-L'entrée « Identité visuelle » (le logo de la station) suit la même règle que
+L'entrée « Identité visuelle » (le logo et la couleur de la station) suit la même règle que
 « Stations » : `settings:manage` vaut propriétaire seul, et un écran dont le
 seul bouton serait grisé n'a rien à annoncer aux autres rôles. Chacun, en
-revanche, **voit** le logo de sa station dans la barre latérale : lire ce qui
-s'affiche partout n'est pas un privilège, le modifier en est un.
+revanche, **voit** le logo et la couleur de sa station — barre latérale, en-tête,
+couleurs de l'interface : lire ce qui s'affiche partout n'est pas un privilège,
+le modifier en est un. La couleur de la station reste un défaut : un membre qui
+a choisi la sienne dans Compte › Apparence garde la sienne, et peut y renoncer.
 
 `tests/navigation.test.ts` verrouille l'ensemble : toute page du disque est
 déclarée dans une route, toute entrée de menu pointe vers une route existante,

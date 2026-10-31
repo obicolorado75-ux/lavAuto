@@ -8,11 +8,13 @@ import { createApiApp } from "../server/app.ts"
 import {
   BRAND_LOGO_MAX_BYTES,
   BRAND_LOGO_MIME_TYPES,
+  STATION_COLOR_THEMES,
   decodeBrandLogo,
   logoUrl,
   toImageBuffer,
   type BrandLogoMimeType,
 } from "../server/branding.ts"
+import { COLOR_THEMES } from "../src/lib/palette.ts"
 import {
   BRAND_LOGO_MAX_EDGE,
   formatBytes,
@@ -242,8 +244,9 @@ test("les tailles s'affichent en français", () => {
 test("une station sans logo personnalisé répond null, pas une erreur", async () => {
   const response = await api("/api/v1/branding", { as: "laveur@washpilot.ci" })
   assert.equal(response.status, 200)
-  const payload = (await response.json()) as { logo: LogoSummary | null }
+  const payload = (await response.json()) as { logo: LogoSummary | null; color_theme: string | null }
   assert.equal(payload.logo, null)
+  assert.equal(payload.color_theme, null)
 
   const image = await api("/api/v1/branding/logo", { as: "laveur@washpilot.ci" })
   assert.equal(image.status, 404)
@@ -378,4 +381,102 @@ test("chaque changement de logo laisse une trace lisible", async () => {
   const actions = rows.rows.map((row) => row.action)
   assert.ok(actions.includes("branding.logo_updated"), "le téléversement doit être tracé")
   assert.ok(actions.includes("branding.logo_removed"), "le retrait doit être tracé")
+})
+
+// ---------------------------------------------------------------------------
+// Couleur de la station
+// ---------------------------------------------------------------------------
+
+test("les trois listes de couleurs — SQL, serveur, client — sont identiques", async () => {
+  const { schemaSql } = await import("../server/db.ts")
+  const inSql = /brand_color IN \(([^)]*)\)/.exec(schemaSql)?.[1]
+  assert.ok(inSql, "contrainte de couleur introuvable dans le schéma")
+  const sqlThemes = [...inSql.matchAll(/'([a-z]+)'/g)].map((m) => m[1])
+  assert.deepEqual(sqlThemes, [...STATION_COLOR_THEMES])
+  assert.deepEqual(
+    COLOR_THEMES.map((theme) => theme.value),
+    [...STATION_COLOR_THEMES],
+    "ajouter une palette dans src/lib/palette.ts exige une migration et une entrée ici",
+  )
+})
+
+test("seul le propriétaire choisit la couleur de la station", async () => {
+  for (const email of ["gerant@washpilot.ci", "laveur@washpilot.ci"]) {
+    const response = await api("/api/v1/branding/theme", {
+      as: email,
+      method: "PUT",
+      body: { color_theme: "violet" },
+    })
+    assert.equal(response.status, 403, `${email} ne doit pas changer la couleur`)
+  }
+})
+
+test("une couleur hors palette est refusée, l'ancienne reste en place", async () => {
+  const response = await api("/api/v1/branding/theme", {
+    as: "demo@washpilot.ci",
+    method: "PUT",
+    body: { color_theme: "#ff00ff" },
+  })
+  assert.equal(response.status, 400)
+
+  const meta = await api("/api/v1/branding", { as: "demo@washpilot.ci" })
+  assert.equal(((await meta.json()) as { color_theme: string | null }).color_theme, null)
+})
+
+test("la couleur choisie par le propriétaire vaut pour toute la station", async () => {
+  const response = await api("/api/v1/branding/theme", {
+    as: "demo@washpilot.ci",
+    method: "PUT",
+    body: { color_theme: "emeraude" },
+  })
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { color_theme: "emeraude" })
+
+  // Un agent de lavage voit la couleur de sa station sans rien avoir choisi.
+  const meta = await api("/api/v1/branding", { as: "laveur@washpilot.ci" })
+  assert.equal(((await meta.json()) as { color_theme: string | null }).color_theme, "emeraude")
+})
+
+test("retirer le logo ne retire pas la couleur", async () => {
+  const upload = await api("/api/v1/branding/logo", {
+    as: "demo@washpilot.ci",
+    method: "PUT",
+    body: { mime_type: "image/png", data_base64: base64(pngBytes(40)) },
+  })
+  assert.equal(upload.status, 200)
+
+  const removal = await api("/api/v1/branding/logo", { as: "demo@washpilot.ci", method: "DELETE" })
+  assert.equal(removal.status, 200)
+
+  const meta = (await (await api("/api/v1/branding", { as: "demo@washpilot.ci" })).json()) as {
+    logo: LogoSummary | null
+    color_theme: string | null
+  }
+  assert.equal(meta.logo, null, "le logo est bien retiré")
+  assert.equal(meta.color_theme, "emeraude", "la couleur de la station survit au retrait du logo")
+})
+
+test("revenir au bleu WashPilot efface la ligne quand elle ne porte plus rien", async () => {
+  const response = await api("/api/v1/branding/theme", {
+    as: "demo@washpilot.ci",
+    method: "PUT",
+    body: { color_theme: null },
+  })
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { color_theme: null })
+
+  const rows = await pool.query(
+    "SELECT count(*)::int AS total FROM organization_branding WHERE organization_id=$1::uuid",
+    [orgId],
+  )
+  assert.equal(rows.rows[0].total, 0, "aucune coquille vide ne doit rester en base")
+})
+
+test("chaque changement de couleur laisse une trace lisible", async () => {
+  const rows = await pool.query<{ action: string }>(
+    `SELECT action FROM audit_logs
+      WHERE organization_id=$1::uuid AND action = 'branding.color_updated'`,
+    [orgId],
+  )
+  assert.ok(rows.rows.length >= 2, "pose et retrait de la couleur doivent être tracés")
 })
