@@ -72,23 +72,174 @@ export async function verifyPassword(password: string, stored: string | null | u
 
 export const SESSION_COOKIE = "washpilot_session"
 export const SESSION_TTL_DAYS = 30
+/**
+ * Rotation : un jeton de session est rajeuni au plus une fois par heure.
+ * Entre deux fenêtres, l'expiration glissante habituelle s'applique — la
+ * rotation ne fait que borner la durée de vie d'un jeton volé, sans casser
+ * les onglets ouverts (le nouveau jeton remplace le cookie à la réponse).
+ */
+export const DEFAULT_SESSION_ROTATION_INTERVAL_MS = 60 * 60 * 1000
+// La fenêtre se lit à chaque appel (et non au chargement du module) : les
+// tests d'intégration ne peuvent pas faire avancer l'horloge serveur, ils la
+// raccourcissent via SESSION_ROTATION_INTERVAL_MS. En production, laisser la
+// variable vide → 1 heure.
+export function sessionRotationIntervalMs(): number {
+  const raw = Number(process.env.SESSION_ROTATION_INTERVAL_MS || "")
+  return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_SESSION_ROTATION_INTERVAL_MS
+}
 
 function hashSessionToken(token: string): string {
   return createHash("sha256").update(token).digest("hex")
 }
 
-export async function createSession(pool: pg.Pool, userId: string): Promise<string> {
+/** Description lisible d'un appareil, dérivée de l'User-Agent (et du fuseau horaire annoncé). */
+export function describeDevice(userAgent?: string | null, timeZone?: string | null): string {
+  const ua = (userAgent ?? "").slice(0, 300)
+  let family = "Appareil inconnu"
+  if (/iPhone/i.test(ua)) family = "iPhone"
+  else if (/iPad/i.test(ua)) family = "iPad"
+  else if (/Android/i.test(ua)) family = "Android"
+  else if (/Windows/i.test(ua)) family = "Windows"
+  else if (/Mac OS X|Macintosh/i.test(ua)) family = "macOS"
+  else if (/Linux/i.test(ua)) family = "Linux"
+  let browser = ""
+  if (/Edg\//i.test(ua)) browser = "Edge"
+  else if (/OPR\//i.test(ua)) browser = "Opera"
+  else if (/Chrome\//i.test(ua)) browser = "Chrome"
+  else if (/Firefox\//i.test(ua)) browser = "Firefox"
+  else if (/Safari\//i.test(ua)) browser = "Safari"
+  const base = browser ? `${browser} · ${family}` : family
+  return timeZone ? `${base} (${timeZone})` : base
+}
+
+export interface SessionFingerprint {
+  ip?: string | null
+  userAgent?: string | null
+  timeZone?: string | null
+}
+
+export async function createSession(
+  pool: pg.Pool,
+  userId: string,
+  fingerprint?: SessionFingerprint,
+): Promise<string> {
   const token = randomBytes(32).toString("base64url")
   await pool.query(
-    `INSERT INTO auth_sessions (user_id, token_hash, expires_at)
-     VALUES ($1, $2, NOW() + make_interval(days => $3))`,
-    [userId, hashSessionToken(token), SESSION_TTL_DAYS],
+    `INSERT INTO auth_sessions (user_id, token_hash, expires_at, created_ip, device_label)
+     VALUES ($1, $2, NOW() + make_interval(days => $3), $4, $5)`,
+    [
+      userId,
+      hashSessionToken(token),
+      SESSION_TTL_DAYS,
+      fingerprint?.ip ?? null,
+      describeDevice(fingerprint?.userAgent, fingerprint?.timeZone),
+    ],
   )
   return token
 }
 
 export async function destroySession(pool: pg.Pool, token: string): Promise<void> {
   await pool.query("DELETE FROM auth_sessions WHERE token_hash = $1", [hashSessionToken(token)])
+}
+
+/**
+ * Révoque TOUTES les sessions d'un utilisateur (mot de passe changé, compte
+ * désactivé, incident de sécurité). La révocation est un DELETE : rien ne
+ * survit, aucun jeton ancien ne peut être rejoué.
+ */
+export async function revokeAllSessionsForUser(pool: pg.Pool, userId: string): Promise<number> {
+  const q = await pool.query("DELETE FROM auth_sessions WHERE user_id = $1", [userId])
+  return q.rowCount ?? 0
+}
+
+/**
+ * Révoque une session identifiée par sa clé primaire, MAIS uniquement si elle
+ * appartient à `userId` (bouton « fermer cet appareil »). Le filtre côté
+ * requête — et pas seulement côté applicatif — garantit qu'un identifiant
+ * volé ou deviné appartenant à un autre compte renvoie 0 ligne : l'appelant
+ * répond 404 et l'attaquant n'apprend rien.
+ */
+export async function revokeSessionByIdScoped(
+  pool: pg.Pool,
+  sessionId: string,
+  userId: string,
+): Promise<boolean> {
+  const q = await pool.query(
+    "DELETE FROM auth_sessions WHERE id = $1::uuid AND user_id = $2::uuid",
+    [sessionId, userId],
+  )
+  return Boolean(q.rowCount)
+}
+
+/**
+ * Trace une révocation de session dans `audit_logs`. La route appelante a
+ * déjà vérifié la session ; on relit l'organisation du compte pour que
+ * l'événement apparaisse dans le journal visible par le gérant. L'écriture
+ * est best effort : un échec d'audit ne doit jamais empêcher une révocation.
+ */
+export async function auditSessionEvent(
+  pool: pg.Pool,
+  session: SessionUser,
+  action: string,
+  metadata?: Record<string, unknown>,
+): Promise<void> {
+  try {
+    const orgQ = await pool.query<{ organization_id: string | null }>(
+      "SELECT organization_id FROM users WHERE id = $1::uuid",
+      [session.userId],
+    )
+    const organizationId = orgQ.rows[0]?.organization_id ?? null
+    if (!organizationId) return
+    await pool.query(
+      `INSERT INTO audit_logs (organization_id, actor_user_id, action, entity_type, entity_id, metadata)
+       VALUES ($1::uuid, $2::uuid, $3, 'auth_session', $4, $5::jsonb)`,
+      [
+        organizationId,
+        session.userId,
+        action,
+        session.sessionId,
+        JSON.stringify({ ...metadata, actor_email: session.email }),
+      ],
+    )
+  } catch {
+    // Best effort : la révocation prime sur sa trace.
+  }
+}
+
+export interface ActiveSessionRow {
+  id: string
+  current: boolean
+  createdAt: string
+  lastUsedAt: string | null
+  expiresAt: string
+  deviceLabel: string | null
+  createdIp: string | null
+}
+
+/** Liste les sessions actives d'un utilisateur ; la session appelante est marquée `current`. */
+export async function listActiveSessions(
+  pool: pg.Pool,
+  userId: string,
+  currentSessionId: string,
+): Promise<ActiveSessionRow[]> {
+  const q = await pool.query(
+    `SELECT s.id,
+            (s.id::text = $2) AS current,
+            s.created_at, s.last_used_at, s.expires_at, s.device_label, s.created_ip
+       FROM auth_sessions s
+      WHERE s.user_id = $1::uuid AND s.expires_at > NOW()
+      ORDER BY s.last_used_at DESC NULLS LAST, s.created_at DESC`,
+    [userId, currentSessionId],
+  )
+  return (q.rows as Array<Record<string, unknown>>).map((row) => ({
+    id: String(row.id),
+    current: Boolean(row.current),
+    createdAt: new Date(row.created_at as string).toISOString(),
+    lastUsedAt: row.last_used_at ? new Date(row.last_used_at as string).toISOString() : null,
+    expiresAt: new Date(row.expires_at as string).toISOString(),
+    deviceLabel: (row.device_label as string | null) ?? null,
+    createdIp: (row.created_ip as string | null) ?? null,
+  }))
 }
 
 // ---------------------------------------------------------------------------
@@ -209,9 +360,25 @@ export interface SessionUser {
   phone: string | null
   avatarUrl: string | null
   status: string
+  /**
+   * Nouveau jeton émis par la rotation de session (au plus une fois par
+   * fenêtre d'heure). Le gestionnaire qui résout la session DOIT poser le
+   * nouveau cookie via `setSessionCookie` si ce champ est présent — sinon
+   * l'ancien jeton reste valable jusqu'à son expiration glissante.
+   */
+  rotatedToken?: string
 }
 
-/** Resolve the active user for the request's session cookie, or null. */
+/**
+ * Résout l'utilisateur actif pour le jeton de la requête, ou null.
+ *
+ * Rotation périodique : au-delà de `SESSION_ROTATION_INTERVAL_MS` depuis la
+ * création de la ligne de session, un nouveau jeton est inséré atomiquement
+ * (UPDATE du hash) et l'ancien cesse immédiatement de fonctionner. La fenêtre
+ * d'expiration glissante repart en même temps (`rotated_at = created_at` est
+ * posé à chaque rotation, y compris sur les lignes héritées où la colonne
+ * arrive vide via ALTER TABLE).
+ */
 export async function getSessionUser(req: Request): Promise<SessionUser | null> {
   const token = readSessionToken(req)
   if (!token) return null
@@ -219,7 +386,8 @@ export async function getSessionUser(req: Request): Promise<SessionUser | null> 
   if (!pool) return null
 
   const q = await pool.query(
-    `SELECT s.id AS session_id, u.id AS user_id, u.email, u.first_name, u.last_name, u.phone, u.avatar_url, u.status
+    `SELECT s.id AS session_id, u.id AS user_id, u.email, u.first_name, u.last_name, u.phone, u.avatar_url, u.status,
+            COALESCE(s.rotated_at, s.created_at) AS last_rotated_at
      FROM auth_sessions s
      JOIN users u ON u.id = s.user_id
      WHERE s.token_hash = $1 AND s.expires_at > NOW()
@@ -229,13 +397,36 @@ export async function getSessionUser(req: Request): Promise<SessionUser | null> 
   const row = q.rows[0] as {
     session_id: string; user_id: string; email: string; first_name: string | null
     last_name: string | null; phone: string | null; avatar_url: string | null; status: string
+    last_rotated_at: Date | string
   } | undefined
   if (!row || row.status !== "active") return null
-  // Sliding expiration: refresh the window on activity (best effort).
-  void pool.query(
-    `UPDATE auth_sessions SET last_used_at = NOW(), expires_at = NOW() + make_interval(days => $2) WHERE id = $1`,
-    [row.session_id, SESSION_TTL_DAYS],
-  ).catch(() => {})
+
+  let rotatedToken: string | undefined
+  const lastRotatedMs = new Date(row.last_rotated_at).getTime()
+  if (Date.now() - lastRotatedMs >= sessionRotationIntervalMs()) {
+    const freshToken = randomBytes(32).toString("base64url")
+    const rotateQ = await pool.query(
+      `UPDATE auth_sessions
+          SET token_hash = $2,
+              rotated_at = NOW(),
+              last_used_at = NOW(),
+              expires_at = NOW() + make_interval(days => $3)
+        WHERE id = $1 AND token_hash = $4`,
+      [row.session_id, hashSessionToken(freshToken), SESSION_TTL_DAYS, hashSessionToken(token)],
+    )
+    // rowCount === 0 : un requête concurrente a déjà pivoté le jeton ; la
+    // présente requête continue avec l'ancien (valable jusqu'à sa propre
+    // résolution suivante). Jamais d'interruption de session pour l'utilisateur.
+    if (rotateQ.rowCount) rotatedToken = freshToken
+  }
+
+  if (!rotatedToken) {
+    // Sliding expiration: refresh the window on activity (best effort).
+    void pool.query(
+      `UPDATE auth_sessions SET last_used_at = NOW(), expires_at = NOW() + make_interval(days => $2) WHERE id = $1`,
+      [row.session_id, SESSION_TTL_DAYS],
+    ).catch(() => {})
+  }
   return {
     sessionId: row.session_id,
     userId: row.user_id,
@@ -245,17 +436,21 @@ export async function getSessionUser(req: Request): Promise<SessionUser | null> 
     phone: row.phone,
     avatarUrl: row.avatar_url,
     status: row.status,
+    rotatedToken,
   }
 }
 
 /** Require a valid session cookie; attach the authenticated user to the request. */
-export async function requireSession(req: Request, _res: Response, next: NextFunction) {
+export async function requireSession(req: Request, res: Response, next: NextFunction) {
   try {
     const pool = getPool()
     if (!pool) throw new HttpError(503, "database_not_configured", "La base de données n'est pas configurée.")
     const user = await getSessionUser(req)
     if (!user) throw new HttpError(401, "authentication_required", "Connectez-vous pour continuer.")
     req.auth = { userId: user.userId, email: user.email, sessionId: user.sessionId }
+    // Rotation : le nouveau jeton remplace le cookie avant la réponse ; si une
+    // route réécrit le cookie derrière nous (login), sa valeur gagne.
+    if (user.rotatedToken) setSessionCookie(req, res, user.rotatedToken)
     next()
   } catch (error) {
     if (error instanceof HttpError) return next(error)

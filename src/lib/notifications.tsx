@@ -309,7 +309,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     [
       notifications,
       unreadCount,
-      read,
       isRead,
       markRead,
       markAllRead,

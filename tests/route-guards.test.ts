@@ -37,6 +37,19 @@ const ALLOWED_UNGUARDED: Record<string, string> = {
   "auth-router.ts|POST /forgot-password": "demande publique de réinitialisation",
   "auth-router.ts|GET /reset-password": "vérification publique d'un jeton de réinitialisation",
   "auth-router.ts|POST /reset-password": "réinitialisation publique par jeton à usage unique",
+  // --- Appareils connectés : le contrôle est structurel, pas un rôle. Ces
+  //     routes sont montées après requireSession et ne manipulent QUE les
+  //     lignes auth_sessions dont user_id = req.auth.userId (le DELETE filtre
+  //     en additionally sur l'identifiant de session → 404 hors périmètre).
+  //     Aucune permission de station à vérifier : on gère son propre compte.
+  "auth-router.ts|GET /sessions": "liste des appareils du compte connecté, scopée par user_id",
+  "auth-router.ts|DELETE /sessions/:id": "fermeture d'un appareil du compte connecté, scopée par user_id",
+  "auth-router.ts|POST /sessions/revoke-others": "fermeture des autres appareils du compte connecté, scopée par user_id",
+
+  // --- Webhook du prestataire de paiement : pas de session possible (appel
+  //     serveur-à-serveur). La garde est la signature HMAC + secret partagé,
+  //     vérifiée en tête de handler ; l'idempotence protège les rejouages.
+  "payments-webhook.ts|POST /payments/webhook": "webhook prestataire : authentifié par signature HMAC, pas par session",
 
   // --- Console éditeur : montée sous requireOperator (app.ts), son propre
   //     cookie, sa propre table de sessions. Ne traverse jamais une session

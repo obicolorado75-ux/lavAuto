@@ -51,6 +51,13 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   "onboarding.completed": "Mise en service terminée",
   "backup.exported": "Sauvegarde exportée",
 
+  // Sessions (P1 rotation/révocation). Ces événements sont faibles en volume
+  // mais décisifs lors d'un incident : « qui a fermé quel appareil, quand ? »
+  "auth.session_revoked_device": "Appareil déconnecté",
+  "auth.sessions_revoked_others": "Autres appareils déconnectés",
+  "auth.password_changed": "Mot de passe modifié",
+  "auth.password_reset": "Mot de passe réinitialisé",
+
   // Référentiel du catalogue. Un changement de tarif ou de catégorie touche
   // l'argent du client : il doit laisser une trace, comme un lavage annulé.
   "vehicle_category.created": "Catégorie de véhicule créée",
@@ -70,6 +77,9 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   "subscription.suspended": "Abonnement suspendu",
   "subscription.trial_extended": "Essai prolongé",
   "subscription.request_declined": "Demande d’activation déclinée",
+  "subscription.payment_webhook_confirmed": "Paiement confirmé par l'agrégateur",
+  "subscription.payment_webhook_failed": "Paiement annulé par l'agrégateur",
+  "subscription.payment_webhook_mismatch": "Écart de montant signalé",
 }
 
 /** Catégories d'entité, pour filtrer sans connaître les noms de tables. */
@@ -85,6 +95,7 @@ export const AUDIT_ENTITY_LABELS: Record<string, string> = {
   plan: "Forfait",
   vehicle_category: "Catégorie de véhicule",
   service: "Prestation",
+  auth_session: "Session de connexion",
 }
 
 export function auditActionLabel(action: string): string {

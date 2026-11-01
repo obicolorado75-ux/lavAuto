@@ -14,7 +14,7 @@ import {
   type SupportMessage,
   type SupportRequest,
 } from "../types"
-import { remainingLabel } from "./support"
+import { remainingLabel } from "../support-sla"
 
 /**
  * Un fil d'assistance.

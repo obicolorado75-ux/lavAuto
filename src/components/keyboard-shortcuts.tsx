@@ -3,7 +3,7 @@
 import * as React from "react"
 import { useNavigate } from "react-router-dom"
 
-import { useSearch } from "@/components/command-search"
+import { useSearch } from "@/components/search-context"
 import {
   Dialog,
   DialogContent,

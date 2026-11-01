@@ -115,10 +115,11 @@ const schema = z.object({
   /**
    * Jeu de démonstration (station « Cocody Riviera », comptes @washpilot.ci).
    *
-   * Actif par défaut en développement et en test, où il donne des données
-   * lisibles immédiatement. Jamais en production. `false` sur une base réelle :
-   * sans cela, effacer les comptes serait inutile — le démarrage suivant les
-   * recréerait, avec leur mot de passe public.
+   * Politique « fail-safe » : inactif par défaut. Il faut poser explicitement
+   * `SEED_DEMO_DATA=true` pour le semer (dev local, smoke tests). En test
+   * automatisé il est toujours semé ; jamais en production. Sans ce verrou,
+   * un simple oubli de configuration recréerait à chaque démarrage des
+   * comptes au mot de passe public sur une base réelle.
    */
   SEED_DEMO_DATA: z.string().trim().optional().default(""),
 
@@ -131,6 +132,22 @@ const schema = z.object({
    * ouvert permettrait d'envoyer des e-mails aux clients à volonté.
    */
   CRON_SECRET: z.string().trim().optional().default(""),
+
+  /**
+   * Secret du webhook d'activation automatique (`POST /api/v1/payments/webhook`).
+   *
+   * Même philosophie que `CRON_SECRET` : absent, la route refuse d'exister
+   * (503). Un déclencheur ouvert vers des activations de forfait serait une
+   * porte dérobée — n'importe qui sachant fabriquer une requête HTTP offrirait
+   * des abonnements gratuits. L'agrégateur signe chaque événement d'un HMAC-
+   * SHA256 calculé sur les octets bruts du corps avec ce secret ; le serveur
+   * le revérifie en temps constant avant toute écriture.
+   *
+   * Volontairement indépendant de `PAYMENT_PROVIDER` : on peut préparer le
+   * webhook (secret communiqué à l'agrégateur) avant de basculer le mode
+   * d'encaissement, sans activer la surface par accident.
+   */
+  PAYMENT_WEBHOOK_SECRET: z.string().trim().optional().default(""),
 })
 
 const parsed = schema.safeParse(process.env)

@@ -5,7 +5,7 @@ import { useLocation } from "react-router-dom"
 import { motion } from "framer-motion"
 
 import { AppSidebar } from "@/components/app-sidebar"
-import { SearchProvider } from "@/components/command-search"
+import { SearchProvider } from "@/components/search-context"
 import { GlobalShortcuts } from "@/components/keyboard-shortcuts"
 import { MobileActionBar } from "@/components/mobile-action-bar"
 import { SiteHeader } from "@/components/site-header"

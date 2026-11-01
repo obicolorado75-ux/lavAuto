@@ -14,36 +14,110 @@ import {
   getSessionUser,
   hashPassword,
   isPasswordResetTokenValid,
+  listActiveSessions,
   readSessionToken,
+  revokeAllSessionsForUser,
+  revokeSessionByIdScoped,
   setSessionCookie,
   verifyPassword,
+  auditSessionEvent,
+  type SessionFingerprint,
 } from "./auth.ts";
 
 export const MIN_PASSWORD_LENGTH = 5;
 
+/**
+ * Empreinte de la session naissante : IP, User-Agent et fuseau horaire que
+ * le client annonce via `x-timezone`. Ces trois champs alimentent l'écran
+ * « Appareils actifs » — sans eux, un gérant ne peut pas distinguer son
+ * téléphone du poste de la caisse.
+ */
+function sessionFingerprint(req: Request): SessionFingerprint {
+  return {
+    ip: req.ip ?? null,
+    userAgent: req.get("user-agent") ?? null,
+    timeZone: req.get("x-timezone") ?? null,
+  };
+}
+
 // ---------------------------------------------------------------------------
-// Minimal in-memory rate limiting for credential endpoints (per IP).
+// Rate limiting for credential endpoints — two stacked layers.
+//
+//   1. Par IP, fenêtre glissante : borne le bruit de fond (scanners, scripts
+//      mal écrits). Les GET /auth/me et PATCH profil restent à cette couche
+//      large, sinon on bloquerait des stations entières derrière une même
+//      connexion réseau.
+//   2. Par compte visé, sur login/register/forgot-password uniquement : c'est
+//      la couche qui compte contre un attaquant patient qui rebondit d'une
+//      adresse IP à l'autre (botnet, proxys gratuits) pour deviner le mot de
+//      passe d'UN SEUL gérant. Une fois le budget du compte épuisé, TOUTES les
+//      adresses IP sont également repoussées — l'IP rotative ne sert plus à rien.
+//
+// Volontairement en mémoire : un déploiement mono-serveur (Docker Compose,
+// Vercel par région) rend Redis superflu ici ; la perdition du compteur au
+// redémarrage est acceptable car elle n'ouvre qu'une nouvelle fenêtre, jamais
+// une levée de blocage en cours. Si le parc passe à plusieurs instances derrièr
+// un répartiteur, remplacer ces Maps par un store partagé sera LE seul point
+// à changer.
 // ---------------------------------------------------------------------------
 const WINDOW_MS = 15 * 60 * 1000;
-const MAX_ATTEMPTS = 30;
-const attempts = new Map<string, { count: number; resetAt: number }>();
+const MAX_ATTEMPTS = 30; // par IP, toutes fins confondues
+const ACCOUNT_WINDOW_MS = 15 * 60 * 1000;
+const MAX_ACCOUNT_ATTEMPTS = 8; // par compte ciblé (login), ou expéditeur (register/forgot)
 
-function assertRateLimit(req: Request) {
-  const key = req.ip || "unknown";
+interface Counter {
+  count: number;
+  resetAt: number;
+}
+
+function consumeBudget(store: Map<string, Counter>, key: string, max: number, windowMs: number) {
   const now = Date.now();
-  const entry = attempts.get(key);
+  const entry = store.get(key);
   if (!entry || entry.resetAt < now) {
-    attempts.set(key, { count: 1, resetAt: now + WINDOW_MS });
+    store.set(key, { count: 1, resetAt: now + windowMs });
     return;
   }
   entry.count += 1;
-  if (entry.count > MAX_ATTEMPTS) {
+  if (entry.count > max) {
     throw new HttpError(
       429,
       "too_many_requests",
       "Trop de tentatives. Patientez quelques minutes puis réessayez.",
     );
   }
+}
+
+const ipAttempts = new Map<string, Counter>();
+const accountAttempts = new Map<string, Counter>();
+
+// Purge périodique : sans elle, les deux Maps grossiraient indéfiniment sous
+// un trafic varié (une clé par IP vue). Un setInterval non "ref" ne retient
+// pas le processus ouvert — les tests et tsx s'arrêtent normalement.
+const purgeTimer = setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of ipAttempts) if (entry.resetAt < now) ipAttempts.delete(key);
+  for (const [key, entry] of accountAttempts) if (entry.resetAt < now) accountAttempts.delete(key);
+}, WINDOW_MS);
+purgeTimer.unref?.();
+
+function assertRateLimit(req: Request) {
+  consumeBudget(ipAttempts, req.ip || "unknown", MAX_ATTEMPTS, WINDOW_MS);
+}
+
+/**
+ * Budget par CIBLE absolue (e-mail soumis), en plus du budget par IP.
+ * Volontairement sans clé d'IP : c'est précisément ce qui rend la couche
+ * efficace contre un attaquant qui change d'adresse entre chaque tentative.
+ * Les tentatives échouées ne sont jamais récompensées par un reset — sinon
+ * il suffirait de se tromper pour recharger son propre compteur.
+ */
+function assertTargetRateLimit(target: string) {
+  consumeBudget(accountAttempts, `t:${target.toLowerCase()}`, MAX_ACCOUNT_ATTEMPTS, ACCOUNT_WINDOW_MS);
+}
+
+/** Réinitialise le budget d'un compte après une authentification réussie. */
+export function resetAuthThrottle(target: string) {
+  accountAttempts.delete(`t:${target.toLowerCase()}`);
 }
 
 const registerSchema = z.object({
@@ -218,6 +292,7 @@ export function createAuthRouter() {
       }
       const { firstName, lastName, email, password, phone, organizationName } =
         parsed.data;
+      assertTargetRateLimit(email);
       const pool = getPool();
       if (!pool)
         throw new HttpError(
@@ -280,7 +355,7 @@ export function createAuthRouter() {
         client.release();
       }
 
-      const token = await createSession(pool, userId);
+      const token = await createSession(pool, userId, sessionFingerprint(req));
       setSessionCookie(req, res, token);
       // Le jeton est aussi renvoyé pour les contextes où le cookie est bloqué
       // (aperçu intégré / iframe) : le client l'enverra en Authorization: Bearer.
@@ -304,6 +379,7 @@ export function createAuthRouter() {
         );
       }
       const { email, password } = parsed.data;
+      assertTargetRateLimit(email);
       const pool = getPool();
       if (!pool)
         throw new HttpError(
@@ -337,7 +413,11 @@ export function createAuthRouter() {
         );
       }
 
-      const token = await createSession(pool, row.id);
+      // Authentification réussie : le budget du compte est rechargé. Un client
+      // légitime qui rebondit entre deux postes ne doit pas être puni pour les
+      // tentatives ratées antérieures — mais uniquement après un SUCCÈS.
+      resetAuthThrottle(email);
+      const token = await createSession(pool, row.id, sessionFingerprint(req));
       setSessionCookie(req, res, token);
       res.json({ ...(await buildMePayload(row.id)), session_token: token });
     }),
@@ -366,7 +446,80 @@ export function createAuthRouter() {
           "authentication_required",
           "Connectez-vous pour continuer.",
         );
+      // Rotation : /me est le point d'entrée de toute revalidation du client ;
+      // c'est ici que le nouveau jeton atteint le navigateur en premier.
+      if (session.rotatedToken) setSessionCookie(req, res, session.rotatedToken);
       res.json(await buildMePayload(session.userId));
+    }),
+  );
+
+  // GET /api/v1/auth/sessions — appareils actifs du compte (P1 : le gérant
+  // doit pouvoir voir et fermer les sessions ouvertes ailleurs que chez lui).
+  r.get(
+    "/sessions",
+    asyncRoute(async (req, res) => {
+      const session = await getSessionUser(req);
+      if (!session)
+        throw new HttpError(401, "authentication_required", "Connectez-vous pour continuer.");
+      if (session.rotatedToken) setSessionCookie(req, res, session.rotatedToken);
+      const pool = getPool();
+      if (!pool)
+        throw new HttpError(503, "database_not_configured", "Base de données indisponible.");
+      res.json({ sessions: await listActiveSessions(pool, session.userId, session.sessionId) });
+    }),
+  );
+
+  // DELETE /api/v1/auth/sessions/:id — ferme UN appareil précis (jamais la
+  // session appelante : on ne scie pas l'assis sur laquelle on est).
+  r.delete(
+    "/sessions/:id",
+    asyncRoute(async (req, res) => {
+      const session = await getSessionUser(req);
+      if (!session)
+        throw new HttpError(401, "authentication_required", "Connectez-vous pour continuer.");
+      if (session.rotatedToken) setSessionCookie(req, res, session.rotatedToken);
+      const targetId = String(req.params.id ?? "");
+      if (!z.string().uuid().safeParse(targetId).success)
+        throw new HttpError(400, "invalid_id", "Identifiant de session invalide.");
+      if (targetId === session.sessionId) {
+        throw new HttpError(
+          400,
+          "cannot_revoke_current_session",
+          "Utilisez la déconnexion pour fermer la session en cours.",
+        );
+      }
+      const pool = getPool();
+      if (!pool)
+        throw new HttpError(503, "database_not_configured", "Base de données indisponible.");
+      // La suppression est filtrée sur user_id : un identifiant appartenant à
+      // un autre compte renvoie 404, jamais 200 (pas d'oracle d'existence).
+      const removed = await revokeSessionByIdScoped(pool, targetId, session.userId);
+      if (!removed)
+        throw new HttpError(404, "session_not_found", "Cette session n'existe plus.");
+      await auditSessionEvent(pool, session, "auth.session_revoked_device");
+      res.status(204).end();
+    }),
+  );
+
+  // POST /api/v1/auth/sessions/revoke-others — « Déconnecter tous les autres
+  // appareils ». La session courante est épargnée : l'utilisateur reste là où
+  // il est, tout le reste est révoqué.
+  r.post(
+    "/sessions/revoke-others",
+    asyncRoute(async (req, res) => {
+      const session = await getSessionUser(req);
+      if (!session)
+        throw new HttpError(401, "authentication_required", "Connectez-vous pour continuer.");
+      if (session.rotatedToken) setSessionCookie(req, res, session.rotatedToken);
+      const pool = getPool();
+      if (!pool)
+        throw new HttpError(503, "database_not_configured", "Base de données indisponible.");
+      const q = await pool.query(
+        "DELETE FROM auth_sessions WHERE user_id = $1 AND id::text <> $2",
+        [session.userId, session.sessionId],
+      );
+      await auditSessionEvent(pool, session, "auth.sessions_revoked_others");
+      res.json({ ok: true, revoked: q.rowCount ?? 0 });
     }),
   );
 
@@ -466,6 +619,9 @@ export function createAuthRouter() {
         "DELETE FROM auth_sessions WHERE user_id = $1 AND id::text <> $2",
         [session.userId, session.sessionId],
       );
+      await auditSessionEvent(pool, session, "auth.password_changed", {
+        other_sessions_revoked: true,
+      });
       res.json({ ok: true });
     }),
   );
@@ -485,6 +641,7 @@ export function createAuthRouter() {
         );
       }
       const { email } = parsed.data;
+      assertTargetRateLimit(email);
       const pool = getPool();
       if (!pool)
         throw new HttpError(
@@ -594,8 +751,18 @@ export function createAuthRouter() {
         [userId, newHash],
       );
       // Toutes les sessions existantes sont révoquées : seul le nouveau mot de
-      // passe donne accès au compte.
-      await pool.query("DELETE FROM auth_sessions WHERE user_id = $1", [userId]);
+      // passe donne accès au compte. La révocation centralisée retourne le
+      // nombre de jetons tués — information utile pour l'audit de l'incident
+      // qui a motivé la réinitialisation.
+      const revokedCount = await revokeAllSessionsForUser(pool, userId);
+
+      await pool.query(
+        `INSERT INTO audit_logs (organization_id, actor_user_id, action, entity_type, entity_id, metadata)
+         SELECT organization_id, $1::uuid, 'auth.password_reset', 'user', $1::text,
+                jsonb_build_object('sessions_revoked', $2::int)
+           FROM users WHERE id = $1::uuid`,
+        [userId, revokedCount],
+      );
 
       res.json({
         ok: true,

@@ -1,0 +1,66 @@
+# CI — validation systématique de chaque pull request et push.
+#
+# Trois vérifications, dans l'ordre de coût croissant :
+#   1. lint    : ESLint en mode strict (--max-warnings 0). Les warnings sont
+#                bloquants : sans cela, ils s'accumulent jusqu'à devenir du bruit
+#                et les vrais signaux se perdent.
+#   2. build   : tsc -b + vite build (typage strict + bundle de production) ;
+#                le bundle serverless est construit aussi pour valider esbuild.
+#   3. tests   : npm test (PGlite en mémoire, aucune base externe requise) ;
+#                npm run smoke (serveur réel + API + SPA servies).
+#
+# Node 22 : c'est la version minimale déclarée dans package.json ("engines").
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Lint (warnings bloquants)
+        run: npx eslint . --max-warnings 0
+      - name: Build (tsc -b && vite build)
+        run: npm run build
+      - name: Build API serverless (esbuild)
+        run: npm run build:api
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          retention-days: 7
+
+  tests:
+    name: Tests unitaires & E2E smoke
+    runs-on: ubuntu-latest
+    needs: quality
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Suite de tests (PGlite en mémoire)
+        run: npm test
+      - name: Smoke E2E (API + SPA)
+        run: |
+          npm run build:api
+          npm run smoke
