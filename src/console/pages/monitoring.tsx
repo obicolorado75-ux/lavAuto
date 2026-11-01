@@ -8,6 +8,7 @@ import { consoleRequest, formatDateTime } from "../api"
 import { Panel, StatCard } from "../layout"
 import type { ErrorGroup, MonitoringOverview, MonitoringRoute } from "../types"
 import { MonitoringAlerts } from "./monitoring-alerts"
+import { durationLabel, rateTone } from "../format"
 
 /**
  * La santé du service.
@@ -36,18 +37,6 @@ const WINDOWS = [
   { hours: 24 * 7, label: "7 j" },
 ]
 
-/** Durée dite en français : 1 240 ms se lit mieux en « 1,2 s ». */
-export function durationLabel(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)} ms`
-  return `${(ms / 1000).toFixed(1).replace(".", ",")} s`
-}
-
-/** Le ton d'un taux d'erreur. Les seuils sont des choix, pas des lois. */
-export function rateTone(rate: number): "success" | "warning" | "danger" {
-  if (rate >= 1) return "danger"
-  if (rate >= 0.1) return "warning"
-  return "success"
-}
 
 /**
  * Histogramme du trafic.

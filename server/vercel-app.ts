@@ -29,6 +29,7 @@ import { runSubscriptionReminders } from "./reminders.ts"
 import { runMonitoringAlerts } from "./monitoring-alerts.ts"
 import { runScheduledReconciliation } from "./reconciliation.ts"
 import { env } from "./env.ts"
+import { securityHeaders } from "./security-headers.ts"
 import { API_PATH_PARAM, restoreApiPath } from "./vercel-url.ts"
 
 /**
@@ -113,12 +114,9 @@ function buildApp(): Express {
   // cookies de session partiraient sans le drapeau `Secure`.
   app.set("trust proxy", 1)
 
-  app.use((_req, res, next) => {
-    res.setHeader("X-Content-Type-Options", "nosniff")
-    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin")
-    res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-    next()
-  })
+  // Mêmes en-têtes de sécurité que le serveur classique — middleware partagé
+  // (server/security-headers.ts) pour que les deux entrées ne divergent jamais.
+  app.use(securityHeaders)
 
   app.use((req, res, next) => {
     // Toute réponse API est propre à une session : jamais de cache partagé.

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { useApi } from "@/lib/api"
 import { useSubscription } from "@/lib/subscription"
 import { cn } from "cn"
+import { buildSupportMessage, currentPageLabel } from "@/components/support/support-message"
 
 /**
  * Assistance WhatsApp.
@@ -36,37 +37,7 @@ interface SupportConfig {
   }
 }
 
-const PAGE_LABELS: { prefix: string; label: string }[] = [
-  { prefix: "/dashboard", label: "le tableau de bord" },
-  { prefix: "/washes", label: "les lavages" },
-  { prefix: "/payments", label: "les encaissements" },
-  { prefix: "/cash-drawer", label: "la caisse" },
-  { prefix: "/expenses", label: "les dépenses" },
-  { prefix: "/reports", label: "les rapports" },
-  { prefix: "/team", label: "l’équipe" },
-  { prefix: "/services", label: "le catalogue" },
-  { prefix: "/settings/billing", label: "le forfait" },
-  { prefix: "/settings/data", label: "les sauvegardes" },
-  { prefix: "/onboarding", label: "la configuration" },
-]
-
-function currentPageLabel(pathname: string): string {
-  return PAGE_LABELS.find((entry) => pathname.startsWith(entry.prefix))?.label ?? "l’application"
-}
-
 /** Message WhatsApp pré-rempli, assez précis pour éviter un aller-retour. */
-export function buildSupportMessage(options: {
-  contactName: string | null
-  organizationName: string | null
-  planName: string | null
-  pageLabel: string
-}): string {
-  const who = options.contactName ? `${options.contactName}` : "un utilisateur"
-  const station = options.organizationName ? ` de la station ${options.organizationName}` : ""
-  const plan = options.planName ? ` (forfait ${options.planName})` : ""
-  return `Bonjour WashPilot CI, je suis ${who}${station}${plan}. J’ai besoin d’aide concernant ${options.pageLabel} : `
-}
-
 export function SupportButton() {
   const [open, setOpen] = React.useState(false)
   const { data } = useApi<SupportConfig>("/api/v1/support/config")

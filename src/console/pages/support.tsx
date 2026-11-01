@@ -6,6 +6,7 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner"
 
 import { consoleRequest, formatDateTime } from "../api"
 import { StatCard } from "../layout"
+import { remainingLabel } from "../support-sla"
 import {
   SUPPORT_CATEGORY_LABELS,
   SUPPORT_STATUS_LABELS,
@@ -27,18 +28,6 @@ const FILTERS = [
   { value: "answered", label: "Répondu" },
   { value: "resolved", label: "Résolu" },
 ]
-
-/** Le délai restant, dit en français plutôt qu'en nombre flottant. */
-export function remainingLabel(request: SupportRequest): string {
-  if (request.sla.responded) return "répondu"
-  const hours = request.sla.hours_remaining
-  if (hours < 0) {
-    const late = Math.abs(hours)
-    return late >= 10 ? `${Math.round(late / 10)} j de retard` : `${late.toFixed(1)} h de retard`
-  }
-  if (hours < 1) return `${Math.round(hours * 60)} min`
-  return hours >= 10 ? `${Math.round(hours / 10)} j` : `${hours.toFixed(1)} h`
-}
 
 export function ConsoleSupport() {
   const [status, setStatus] = React.useState("")

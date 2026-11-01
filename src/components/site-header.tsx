@@ -16,7 +16,7 @@ import CIcon from "@coreui/icons-react"
 import { cilMenu } from "@coreui/icons"
 
 import { BrandLogo } from "@/components/brand-logo"
-import { useSearch } from "@/components/command-search"
+import { useSearch } from "@/components/search-context"
 import { NewWashButton } from "@/components/actions/new-wash-button"
 import { NotificationCenter, SyncStatus } from "@/components/notifications/notification-center"
 import { CoreUiThemeDropdown } from "@/components/coreui/theme-dropdown"

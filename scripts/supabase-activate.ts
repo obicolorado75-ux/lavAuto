@@ -366,7 +366,7 @@ async function report(client: pg.Client, migrationsSettled: boolean): Promise<nu
 
   if (ready) {
     console.log("[prêt] La base est activée : démarrez l'API avec cette même DATABASE_URL.")
-    console.log("       Sur une base réelle, pensez à SEED_DEMO_DATA=false et à APP_URL / CORS_ORIGINS.")
+    console.log("       Sur une base réelle, laissez SEED_DEMO_DATA vide (défaut fail-safe) et renseignez APP_URL / CORS_ORIGINS.")
     return 0
   }
   console.log("[incomplet] La base n'est pas encore prête pour l'application.")
