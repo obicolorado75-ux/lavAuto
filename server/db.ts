@@ -948,6 +948,12 @@ CREATE TABLE IF NOT EXISTS payment_intents (
 );
 CREATE INDEX IF NOT EXISTS payment_intents_org_idx ON payment_intents(organization_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS payment_intents_status_idx ON payment_intents(status, created_at DESC);
+-- Code d'activation emis par l'editeur quand il encaisse hors ligne (pas
+-- d'agregateur branche) : le client le saisit dans son application pour
+-- valider sa souscription. UNIQUE : deux intentions ne peuvent pas porter le
+-- meme code, et un code sert une fois -- la colonne est videe a la validation.
+ALTER TABLE payment_intents ADD COLUMN IF NOT EXISTS activation_code text UNIQUE;
+ALTER TABLE payment_intents ADD COLUMN IF NOT EXISTS activation_expires_at timestamptz;
 
 -- Registre des encaissements d'abonnement : la seule source de verite du
 -- chiffre d'affaires. Toute activation y ecrit une ligne, quel que soit son
