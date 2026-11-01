@@ -25,6 +25,7 @@ import { createAttendanceRouter } from "./attendance.ts"
 import { createAdminRouter } from "./admin.ts"
 import { createConsoleAuthRouter, requireOperator } from "./console-auth.ts"
 import { createPublicPricingRouter } from "./public-pricing.ts"
+import { createPaymentsWebhookRouter } from "./payments-webhook.ts"
 import { attachSubscription, blockWritesWhenReadOnly } from "./entitlements.ts"
 import { captureIncident, monitorRequests } from "./monitoring-middleware.ts"
 
@@ -85,6 +86,15 @@ export function mountApi(app: Express) {
   // Grille tarifaire publique — avant `requireSession`, comme la console et
   // pour la raison inverse : ce que lit un visiteur sans compte.
   app.use("/api/v1/public", createPublicPricingRouter())
+
+  // Webhook d'agrégateur de paiement — monté AVANT `requireSession`, comme la
+  // console et pour la même raison : l'appelant n'a ni cookie de station ni
+  // contexte de locataire ; c'est l'intention de paiement désignée par la
+  // charge utile qui porte l'organisation. La surface est authentifiée par
+  // signature HMAC (`server/payments-webhook.ts`) et fermée (503) tant que
+  // PAYMENT_WEBHOOK_SECRET n'est pas configuré. Ce franchissement est visible
+  // au montage, jamais caché dans une route.
+  app.use("/api/v1", createPaymentsWebhookRouter())
 
   app.use("/api/v1", requireSession)
   app.use("/api/v1", requireTenantContext)

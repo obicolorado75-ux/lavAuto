@@ -1,8 +1,7 @@
 -- LAVAUTO: schema initial de lapplication.
 -- Projet Supabase dédié ; base neuve (aucune reprise de données).
--- Générée depuis server/db.ts::schemaSql le 2026-10-31.
+-- Générée depuis server/db.ts::schemaSql le 2026-11-01.
 -- Ne jamais modifier après application : créer une nouvelle migration.
-
 
 CREATE TABLE IF NOT EXISTS users (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -729,6 +728,35 @@ CREATE INDEX IF NOT EXISTS subscription_payments_when_idx ON subscription_paymen
 CREATE INDEX IF NOT EXISTS subscription_payments_org_idx ON subscription_payments(organization_id, occurred_at DESC);
 CREATE INDEX IF NOT EXISTS subscription_payments_period_idx ON subscription_payments(period_start, period_end);
 
+-- Registre des evenements recus par le webhook d'encaissement
+-- (server/payments-webhook.ts).
+--
+-- L'agregateur rejoue : retransmission reseau, timeout, relance programmee.
+-- Chose courante sur les rails mobiles. Sans reconnaissance du doublon AVANT
+-- traitement, chaque rejeu offrirait un mois de plus. La cle d'idempotence est
+-- DERIVEE ici (transaction + verdict), jamais saisie par l'expediteur : c'est
+-- nous qui decidons ce qu'un « meme evenement » signifie -- un succes puis un
+-- refund sur la meme transaction sont deux evenements distincts, et le second
+-- doit pouvoir fermer l'intention que le premier a ouverte.
+--
+-- Pas de RLS : table technique de la plateforme, sans organisation porteuse,
+-- comme error_events. Elle n'est jamais exposee par une route de station ;
+-- seule la session applicative y touche.
+CREATE TABLE IF NOT EXISTS webhook_events (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ provider text NOT NULL DEFAULT 'manual',
+ transaction_id text NOT NULL,
+ event_key text NOT NULL UNIQUE,
+ payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+ status text NOT NULL DEFAULT 'processing' CHECK (status IN ('processing','processed','failed')),
+ result jsonb,
+ error text,
+ processed_at timestamptz,
+ created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS webhook_events_created_idx ON webhook_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS webhook_events_tx_idx ON webhook_events(transaction_id);
+
 -- Demandes d'assistance.
 --
 -- Jusqu'ici une demande d'aide etait un message WhatsApp : aucune trace, donc
@@ -1049,6 +1077,13 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
  created_at timestamptz NOT NULL DEFAULT now(),
  last_used_at timestamptz NOT NULL DEFAULT now()
 );
+-- Rotation & révocation de sessions (P1) : trois colonnes ajoutées par ALTER
+-- pour rester compatible avec les bases déjà en place. « rotated_at » borne la
+-- fenêtre de rotation ; « created_ip » et « device_label » alimentent l'écran
+-- « Appareils actifs ».
+ALTER TABLE auth_sessions ADD COLUMN IF NOT EXISTS rotated_at timestamptz;
+ALTER TABLE auth_sessions ADD COLUMN IF NOT EXISTS created_ip text;
+ALTER TABLE auth_sessions ADD COLUMN IF NOT EXISTS device_label text;
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires ON auth_sessions(expires_at);
 -- Réinitialisation de mot de passe : seul le SHA-256 du jeton est stocké, ------

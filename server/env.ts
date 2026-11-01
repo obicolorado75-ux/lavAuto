@@ -132,6 +132,22 @@ const schema = z.object({
    * ouvert permettrait d'envoyer des e-mails aux clients à volonté.
    */
   CRON_SECRET: z.string().trim().optional().default(""),
+
+  /**
+   * Secret du webhook d'activation automatique (`POST /api/v1/payments/webhook`).
+   *
+   * Même philosophie que `CRON_SECRET` : absent, la route refuse d'exister
+   * (503). Un déclencheur ouvert vers des activations de forfait serait une
+   * porte dérobée — n'importe qui sachant fabriquer une requête HTTP offrirait
+   * des abonnements gratuits. L'agrégateur signe chaque événement d'un HMAC-
+   * SHA256 calculé sur les octets bruts du corps avec ce secret ; le serveur
+   * le revérifie en temps constant avant toute écriture.
+   *
+   * Volontairement indépendant de `PAYMENT_PROVIDER` : on peut préparer le
+   * webhook (secret communiqué à l'agrégateur) avant de basculer le mode
+   * d'encaissement, sans activer la surface par accident.
+   */
+  PAYMENT_WEBHOOK_SECRET: z.string().trim().optional().default(""),
 })
 
 const parsed = schema.safeParse(process.env)

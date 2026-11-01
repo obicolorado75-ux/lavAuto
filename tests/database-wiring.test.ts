@@ -558,7 +558,11 @@ test("toute table du schéma est utilisée, toute table utilisée existe", async
 
   const referenced = new Set<string>()
   for (const text of sources.values()) {
-    for (const m of text.matchAll(
+    // Les commentaires ne sont pas du SQL : `UPDATE du hash` dans une phrase
+    // française y ferait voir une table fantôme. On retire les blocs /* */ et
+    // les lignes // avant de scanner.
+    const code = text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "")
+    for (const m of code.matchAll(
       /\b(?:FROM|JOIN|INTO|UPDATE|DELETE\s+FROM)\s+([a-z_][a-z0-9_]*)/gi,
     )) {
       referenced.add(m[1].toLowerCase())

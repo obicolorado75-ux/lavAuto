@@ -77,6 +77,14 @@ const env = {
   // Certains tests démarrent un serveur : un délai de garde évite qu'une
   // poignée de main oubliée ne fige la suite.
   API_TIMEOUT_MS: "20000",
+  // Fenêtre de rotation de session explicite pour TOUTE la suite. Sans cette
+  // valeur, un fichier qui bricole process.env.SESSION_ROTATION_INTERVAL_MS
+  // (pour tester la rotation) peut laisser traîner « 0 » dans un worker réutilisé :
+  // chaque requête authentifiée des fichiers suivants pivoterait alors le jeton
+  // et tuerait les sessions — hécatombe de 401 en cascade, déjà observée.
+  // Les tests qui veulent déclencher la rotation posent leur propre valeur et
+  // la restaurent ; celle-ci sert de plancher sain.
+  SESSION_ROTATION_INTERVAL_MS: String(60 * 60 * 1000),
 }
 
 console.log(`[test] ${files.length} fichier(s) — base en mémoire, NODE_ENV=test`)

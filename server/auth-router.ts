@@ -14,12 +14,31 @@ import {
   getSessionUser,
   hashPassword,
   isPasswordResetTokenValid,
+  listActiveSessions,
   readSessionToken,
+  revokeAllSessionsForUser,
+  revokeSessionByIdScoped,
   setSessionCookie,
   verifyPassword,
+  auditSessionEvent,
+  type SessionFingerprint,
 } from "./auth.ts";
 
 export const MIN_PASSWORD_LENGTH = 5;
+
+/**
+ * Empreinte de la session naissante : IP, User-Agent et fuseau horaire que
+ * le client annonce via `x-timezone`. Ces trois champs alimentent l'écran
+ * « Appareils actifs » — sans eux, un gérant ne peut pas distinguer son
+ * téléphone du poste de la caisse.
+ */
+function sessionFingerprint(req: Request): SessionFingerprint {
+  return {
+    ip: req.ip ?? null,
+    userAgent: req.get("user-agent") ?? null,
+    timeZone: req.get("x-timezone") ?? null,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Rate limiting for credential endpoints — two stacked layers.
@@ -336,7 +355,7 @@ export function createAuthRouter() {
         client.release();
       }
 
-      const token = await createSession(pool, userId);
+      const token = await createSession(pool, userId, sessionFingerprint(req));
       setSessionCookie(req, res, token);
       // Le jeton est aussi renvoyé pour les contextes où le cookie est bloqué
       // (aperçu intégré / iframe) : le client l'enverra en Authorization: Bearer.
@@ -398,7 +417,7 @@ export function createAuthRouter() {
       // légitime qui rebondit entre deux postes ne doit pas être puni pour les
       // tentatives ratées antérieures — mais uniquement après un SUCCÈS.
       resetAuthThrottle(email);
-      const token = await createSession(pool, row.id);
+      const token = await createSession(pool, row.id, sessionFingerprint(req));
       setSessionCookie(req, res, token);
       res.json({ ...(await buildMePayload(row.id)), session_token: token });
     }),
@@ -427,7 +446,80 @@ export function createAuthRouter() {
           "authentication_required",
           "Connectez-vous pour continuer.",
         );
+      // Rotation : /me est le point d'entrée de toute revalidation du client ;
+      // c'est ici que le nouveau jeton atteint le navigateur en premier.
+      if (session.rotatedToken) setSessionCookie(req, res, session.rotatedToken);
       res.json(await buildMePayload(session.userId));
+    }),
+  );
+
+  // GET /api/v1/auth/sessions — appareils actifs du compte (P1 : le gérant
+  // doit pouvoir voir et fermer les sessions ouvertes ailleurs que chez lui).
+  r.get(
+    "/sessions",
+    asyncRoute(async (req, res) => {
+      const session = await getSessionUser(req);
+      if (!session)
+        throw new HttpError(401, "authentication_required", "Connectez-vous pour continuer.");
+      if (session.rotatedToken) setSessionCookie(req, res, session.rotatedToken);
+      const pool = getPool();
+      if (!pool)
+        throw new HttpError(503, "database_not_configured", "Base de données indisponible.");
+      res.json({ sessions: await listActiveSessions(pool, session.userId, session.sessionId) });
+    }),
+  );
+
+  // DELETE /api/v1/auth/sessions/:id — ferme UN appareil précis (jamais la
+  // session appelante : on ne scie pas l'assis sur laquelle on est).
+  r.delete(
+    "/sessions/:id",
+    asyncRoute(async (req, res) => {
+      const session = await getSessionUser(req);
+      if (!session)
+        throw new HttpError(401, "authentication_required", "Connectez-vous pour continuer.");
+      if (session.rotatedToken) setSessionCookie(req, res, session.rotatedToken);
+      const targetId = String(req.params.id ?? "");
+      if (!z.string().uuid().safeParse(targetId).success)
+        throw new HttpError(400, "invalid_id", "Identifiant de session invalide.");
+      if (targetId === session.sessionId) {
+        throw new HttpError(
+          400,
+          "cannot_revoke_current_session",
+          "Utilisez la déconnexion pour fermer la session en cours.",
+        );
+      }
+      const pool = getPool();
+      if (!pool)
+        throw new HttpError(503, "database_not_configured", "Base de données indisponible.");
+      // La suppression est filtrée sur user_id : un identifiant appartenant à
+      // un autre compte renvoie 404, jamais 200 (pas d'oracle d'existence).
+      const removed = await revokeSessionByIdScoped(pool, targetId, session.userId);
+      if (!removed)
+        throw new HttpError(404, "session_not_found", "Cette session n'existe plus.");
+      await auditSessionEvent(pool, session, "auth.session_revoked_device");
+      res.status(204).end();
+    }),
+  );
+
+  // POST /api/v1/auth/sessions/revoke-others — « Déconnecter tous les autres
+  // appareils ». La session courante est épargnée : l'utilisateur reste là où
+  // il est, tout le reste est révoqué.
+  r.post(
+    "/sessions/revoke-others",
+    asyncRoute(async (req, res) => {
+      const session = await getSessionUser(req);
+      if (!session)
+        throw new HttpError(401, "authentication_required", "Connectez-vous pour continuer.");
+      if (session.rotatedToken) setSessionCookie(req, res, session.rotatedToken);
+      const pool = getPool();
+      if (!pool)
+        throw new HttpError(503, "database_not_configured", "Base de données indisponible.");
+      const q = await pool.query(
+        "DELETE FROM auth_sessions WHERE user_id = $1 AND id::text <> $2",
+        [session.userId, session.sessionId],
+      );
+      await auditSessionEvent(pool, session, "auth.sessions_revoked_others");
+      res.json({ ok: true, revoked: q.rowCount ?? 0 });
     }),
   );
 
@@ -527,6 +619,9 @@ export function createAuthRouter() {
         "DELETE FROM auth_sessions WHERE user_id = $1 AND id::text <> $2",
         [session.userId, session.sessionId],
       );
+      await auditSessionEvent(pool, session, "auth.password_changed", {
+        other_sessions_revoked: true,
+      });
       res.json({ ok: true });
     }),
   );
@@ -656,8 +751,18 @@ export function createAuthRouter() {
         [userId, newHash],
       );
       // Toutes les sessions existantes sont révoquées : seul le nouveau mot de
-      // passe donne accès au compte.
-      await pool.query("DELETE FROM auth_sessions WHERE user_id = $1", [userId]);
+      // passe donne accès au compte. La révocation centralisée retourne le
+      // nombre de jetons tués — information utile pour l'audit de l'incident
+      // qui a motivé la réinitialisation.
+      const revokedCount = await revokeAllSessionsForUser(pool, userId);
+
+      await pool.query(
+        `INSERT INTO audit_logs (organization_id, actor_user_id, action, entity_type, entity_id, metadata)
+         SELECT organization_id, $1::uuid, 'auth.password_reset', 'user', $1::text,
+                jsonb_build_object('sessions_revoked', $2::int)
+           FROM users WHERE id = $1::uuid`,
+        [userId, revokedCount],
+      );
 
       res.json({
         ok: true,
